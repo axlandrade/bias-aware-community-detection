@@ -1,0 +1,9 @@
+networkx
+python-louvain
+cvxpy
+scikit-learn
+matplotlib
+seaborn
+pandas
+numpy
+python-igraph

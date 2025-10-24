@@ -217,3 +217,8 @@ __marimo__/
 
 # VS Code settings
 .vscode/
+
+# Data folder
+data/
+
+intermediate_tweet_scores.csv
