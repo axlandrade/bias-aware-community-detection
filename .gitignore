@@ -228,3 +228,5 @@ notebooks/igraph_real_labels.json
 notebooks/igraph_real_graph.pkl
 
 notebooks/igraph_real_labels.json
+
+notebooks/igraph_id_maps.json

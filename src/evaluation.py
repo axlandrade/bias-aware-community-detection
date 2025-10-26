@@ -1,67 +1,99 @@
-# src/evaluation.py
-import networkx as nx  # <<< ADICIONAR
-import numpy as np     # <<< ADICIONAR
-import community.community_louvain as community_louvain # <<< ADICIONAR
-
-from typing import Dict, Optional
-from collections import defaultdict
+import networkx as nx
+import numpy as np
+from sklearn.metrics import silhouette_score
+import pandas as pd
 
 class ComprehensiveEvaluator:
-    """Agrupa métodos estáticos para avaliar a qualidade das partições de comunidades."""
-
     @staticmethod
-    def evaluate_communities(
-        G: nx.Graph, 
-        partition: Dict[int, int],
-        bias_scores: Dict[int, float],
-        bot_labels: Optional[Dict[int, bool]] = None
-    ) -> Dict[str, float]:
-        """
-        Calcula um conjunto de métricas para avaliar uma partição de comunidade.
-
-        Args:
-            G (nx.Graph): O grafo original.
-            partition (Dict[int, int]): Dicionário {nó: id_comunidade}.
-            bias_scores (Dict[int, float]): Dicionário {nó: score_de_viés}.
-            bot_labels (Optional[Dict[int, bool]]): Dicionário {nó: is_bot}.
-
-        Returns:
-            Dict[str, float]: Dicionário com os nomes e valores das métricas.
-        """
+    def evaluate_communities(G, partition, bias_scores, bot_labels=None):
+        """Avalia qualidade das comunidades detectadas"""
         metrics = {}
-
-        # Métrica Estrutural: Modularidade de Newman-Girvan
-        # Mede a força da divisão do grafo em comunidades. Valores mais altos são melhores.
-        metrics['modularity'] = community_louvain.modularity(partition, G)
-
-        # Métricas de Viés
-        community_biases = defaultdict(list)
-        for node, comm in partition.items():
-            community_biases[comm].append(bias_scores[node])
-
-        # Pureza de Viés: Mede a homogeneidade ideológica dentro das comunidades.
-        # Baseado no inverso do desvio padrão médio intra-comunidade. Valores mais altos são melhores.
-        within_comm_std = [np.std(biases) for biases in community_biases.values() if len(biases) > 1]
-        avg_within_std = np.mean(within_comm_std) if within_comm_std else 0
-        metrics['bias_purity'] = 1 / (1 + avg_within_std)
-
-        # Separação de Viés: Mede o quão ideologicamente distintas as comunidades são entre si.
-        # Baseado no desvio padrão dos vieses médios das comunidades. Valores mais altos são melhores.
-        avg_biases = [np.mean(biases) for biases in community_biases.values()]
-        metrics['bias_separation'] = np.std(avg_biases) if len(avg_biases) > 1 else 0
-
-        # Métrica de Bots (se disponível)
-        if bot_labels is not None:
-            community_bots = defaultdict(list)
-            for node, comm in partition.items():
-                community_bots[comm].append(bot_labels[node])
-
-            # Concentração de Bots: Mede a proporção máxima de bots em qualquer comunidade.
-            # Útil para verificar se o método agrupa contas maliciosas.
-            bot_concentrations = [sum(bots) / len(bots) for bots in community_bots.values() if bots]
-            metrics['bot_concentration_max'] = max(bot_concentrations) if bot_concentrations else 0
-            metrics['bot_concentration_min'] = min(bot_concentrations) if bot_concentrations else 0
-
+        
+        # Métricas estruturais
+        metrics['modularity'] = nx.algorithms.community.modularity(G, ComprehensiveEvaluator._get_communities_set(partition))
         metrics['num_communities'] = len(set(partition.values()))
-
+        
+        # Métricas de viés
+        bias_metrics = ComprehensiveEvaluator._calculate_bias_metrics(partition, bias_scores)
+        metrics.update(bias_metrics)
+        
+        # Métricas de bots (se disponível)
+        if bot_labels:
+            bot_metrics = ComprehensiveEvaluator._calculate_bot_metrics(partition, bot_labels)
+            metrics.update(bot_metrics)
+        
         return metrics
+    
+    @staticmethod
+    def _get_communities_set(partition):
+        """Converte partição para formato do NetworkX"""
+        communities = {}
+        for node, comm in partition.items():
+            if comm not in communities:
+                communities[comm] = set()
+            communities[comm].add(node)
+        return list(communities.values())
+    
+    @staticmethod
+    def _calculate_bias_metrics(partition, bias_scores):
+        """Calcula métricas de qualidade do viés"""
+        metrics = {}
+        
+        # Agrupar viés por comunidade
+        comm_biases = {}
+        for node, comm in partition.items():
+            if comm not in comm_biases:
+                comm_biases[comm] = []
+            comm_biases[comm].append(bias_scores.get(node, 0))
+        
+        # Pureza intra-comunidade (baixa variância é bom)
+        intra_variances = [np.var(biases) for biases in comm_biases.values() if len(biases) > 1]
+        metrics['bias_purity'] = 1 - (np.mean(intra_variances) if intra_variances else 0)
+        
+        # Separação inter-comunidade (alta variância entre médias é bom)
+        comm_means = [np.mean(biases) for biases in comm_biases.values() if biases]
+        metrics['bias_separation'] = np.var(comm_means) if len(comm_means) > 1 else 0
+        
+        return metrics
+    
+    @staticmethod
+    def _calculate_bot_metrics(partition, bot_labels):
+        """Calcula métricas relacionadas a bots"""
+        metrics = {}
+        
+        comm_bots = {}
+        for node, comm in partition.items():
+            if comm not in comm_bots:
+                comm_bots[comm] = []
+            if node in bot_labels:
+                comm_bots[comm].append(bot_labels[node])
+        
+        # Concentração máxima de bots
+        bot_concentrations = []
+        for comm, bots in comm_bots.items():
+            if bots:
+                bot_ratio = sum(bots) / len(bots)
+                bot_concentrations.append(bot_ratio)
+        
+        metrics['bot_concentration_max'] = max(bot_concentrations) if bot_concentrations else 0
+        metrics['bot_concentration_avg'] = np.mean(bot_concentrations) if bot_concentrations else 0
+        
+        return metrics
+    
+    @staticmethod
+    def print_comparison(metrics1, metrics2, name1="Método 1", name2="Método 2"):
+        """Imprime comparação entre dois métodos"""
+        print(f"\n📈 COMPARAÇÃO: {name1} vs {name2}")
+        print("-" * 50)
+        
+        for metric in ['modularity', 'bias_purity', 'bias_separation', 'bot_concentration_max']:
+            if metric in metrics1 and metric in metrics2:
+                val1 = metrics1[metric]
+                val2 = metrics2[metric]
+                
+                if val2 != 0:
+                    improvement = ((val1 / val2) - 1) * 100
+                else:
+                    improvement = 0
+                
+                print(f"{metric:>20}: {val1:7.4f} vs {val2:7.4f} ({improvement:+.1f}%)")
