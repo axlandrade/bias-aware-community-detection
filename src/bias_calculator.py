@@ -11,6 +11,7 @@ import os
 import psutil 
 import pandas as pd 
 import multiprocessing as mp
+from collections import defaultdict  # 
 from tqdm import tqdm
 import time
 from .config import Config # Import relativo
@@ -53,6 +54,12 @@ def process_tweets_aggregate_bias(args_tuple):
     global worker_pipeline
     list_of_tweet_files, worker_num, nodes_valid_set, twibot_path, batch_size = args_tuple
     
+    # --- 1. INÍCIO DA MODIFICAÇÃO (DEFINIR LIMITE) ---
+    # Defina o limite de tweets a processar POR WORKER.
+    # Ex: 10.000. Se tiver 12 workers, processará ~120.000 tweets no total.
+    TWEET_LIMIT_PER_WORKER = 3000 
+    # --- FIM DA MODIFICAÇÃO ---
+
     if worker_pipeline is None or worker_pipeline == "ERROR":
         print(f"   [Worker {worker_num}] Modelo não carregado. Usando placeholder.")
         # Fallback para placeholder se o modelo falhou ao carregar
@@ -61,15 +68,21 @@ def process_tweets_aggregate_bias(args_tuple):
         local_pipeline = worker_pipeline
 
     partial_bias_data = defaultdict(lambda: {'score_sum': 0.0, 'tweet_count': 0})
-    count_processed_tweets = 0
     
-    print(f"   [Worker {worker_num}] Iniciando {len(list_of_tweet_files)} arquivo(s)...")
+    # --- 2. INÍCIO DA MODIFICAÇÃO (CONTADOR E FLAG) ---
+    # Usaremos este contador para o limite
+    tweets_found_count = 0 
+    stop_processing_flag = False
+    # --- FIM DA MODIFICAÇÃO ---
+    
+    print(f"   [Worker {worker_num}] Iniciando {len(list_of_tweet_files)} arquivo(s) (Limite: {TWEET_LIMIT_PER_WORKER} tweets por worker)...")
     
     current_batch_texts = []
     current_batch_users = []
 
     def process_batch(texts, users, pipeline):
         """Processa o batch atual com o LLM e atualiza o dict agregado."""
+        # ... (O CÓDGIO DESTA FUNÇÃO INTERNA NÃO MUDA) ...
         if not texts: return 0
         
         scores = []
@@ -85,6 +98,10 @@ def process_tweets_aggregate_bias(args_tuple):
                  scores = [np.tanh((hash(txt) % 1000 - 500) / 250) for txt in texts] # Placeholder
         else: # Placeholder
             scores = [np.tanh((hash(txt) % 1000 - 500) / 250) for txt in texts]
+
+        # --- MODIFICAÇÃO: FORÇAR O PLACEHOLDER ---
+        # scores = [np.tanh((hash(txt) % 1000 - 500) / 250) for txt in texts]
+        # --- FIM DA MODIFICAÇÃO ---
         
         # Agregar resultados
         for user_id_str, score in zip(users, scores):
@@ -95,9 +112,19 @@ def process_tweets_aggregate_bias(args_tuple):
 
     # Iterar pelos arquivos
     for tweet_file_path in list_of_tweet_files:
+        if stop_processing_flag: # Se o limite foi atingido, pare de abrir novos arquivos
+            break
+            
         try:
             with open(os.path.join(twibot_path, tweet_file_path), 'r', encoding='utf-8') as infile:
                 for line in infile:
+                    
+                    # --- 3. INÍCIO DA MODIFICAÇÃO (VERIFICAR LIMITE) ---
+                    if tweets_found_count >= TWEET_LIMIT_PER_WORKER:
+                        stop_processing_flag = True
+                        break # Sai do loop 'for line in infile'
+                    # --- FIM DA MODIFICAÇÃO ---
+
                     try:
                         tweet_data = json.loads(line)
                         user_id_str = tweet_data.get('author_id')
@@ -107,10 +134,11 @@ def process_tweets_aggregate_bias(args_tuple):
                                 current_batch_texts.append(tweet_text)
                                 current_batch_users.append(user_id_str)
                                 
+                                tweets_found_count += 1 # Incrementar o contador aqui
+                                
                                 # Processar se o batch estiver cheio
                                 if len(current_batch_texts) >= batch_size:
-                                    count = process_batch(current_batch_texts, current_batch_users, local_pipeline)
-                                    count_processed_tweets += count
+                                    process_batch(current_batch_texts, current_batch_users, local_pipeline)
                                     current_batch_texts = []
                                     current_batch_users = []
                                     
@@ -120,10 +148,10 @@ def process_tweets_aggregate_bias(args_tuple):
     
     # Processar o último batch restante
     if current_batch_texts:
-        count = process_batch(current_batch_texts, current_batch_users, local_pipeline)
-        count_processed_tweets += count
+        process_batch(current_batch_texts, current_batch_users, local_pipeline)
         
-    print(f"   [Worker {worker_num}] Concluído ({count_processed_tweets:,} tweets processados)")
+    # ATUALIZAR MENSAGEM DE SAÍDA
+    print(f"   [Worker {worker_num}] Concluído ({tweets_found_count:,} tweets processados)")
     return partial_bias_data # Retorna o dicionário agregado
 
 # --- Classe Principal ---
@@ -166,11 +194,16 @@ class BiasCalculator:
         if calculation_needed:
             print("\n--- Iniciando cálculo de scores de viés (Single-Pass Paralelo) ---")
             
-            tweet_files = sorted([f for f in os.listdir(self.config.TWIBOT_PATH) 
+            # --- MODIFICAÇÃO: LER DO DISCO LOCAL ---
+            # LOCAL_TWEET_PATH = "/tmp/tweet_data"
+            LOCAL_TWEET_PATH = "data/TwiBot22/"
+            print(f"--- ATENÇÃO: Lendo tweets do disco local: {LOCAL_TWEET_PATH} ---")
+            tweet_files = sorted([f for f in os.listdir(LOCAL_TWEET_PATH) 
                                   if f.startswith('tweet_') and f.endswith('.json')])
+            # --- FIM DA MODIFICAÇÃO ---
             
             if not tweet_files: 
-                print(f"⚠️ AVISO: Nenhum arquivo tweet_*.json encontrado.")
+                print(f"⚠️ AVISO: Nenhum arquivo tweet_*.json encontrado em '{LOCAL_TWEET_PATH}'.")
                 bias_scores_real = {} # Vazio
             else:
                 num_workers = self.config.NUM_WORKERS
@@ -181,15 +214,17 @@ class BiasCalculator:
                 files_per_worker = [[] for _ in range(num_workers)]
                 for i, f in enumerate(tweet_files): files_per_worker[i % num_workers].append(f)
                 
-                pool_args = [(files_per_worker[i], i, G_nodes_set, self.config.TWIBOT_PATH, self.config.BATCH_SIZE) 
+                # --- MODIFICAÇÃO: Passar o caminho local para os workers ---
+                pool_args = [(files_per_worker[i], i, G_nodes_set, LOCAL_TWEET_PATH, self.config.BATCH_SIZE) 
                              for i in range(num_workers) if files_per_worker[i]]
+                # --- FIM DA MODIFICAÇÃO ---
                 
                 partial_results = []
                 try:
                     # initializer=init_worker_pipeline carrega o LLM em cada worker
                     with mp.Pool(processes=len(pool_args), initializer=init_worker_pipeline) as pool:
                         
-                        # --- INÍCIO DA MODIFICAÇÃO ---
+                        # --- INÍCIO DA MODIFICAÇÃO (tqdm) ---
                         print(f"   Iniciando {len(pool_args)} workers. Acompanhe o progresso:")
                         
                         # Usamos pool.imap (que é um iterador) em vez de pool.map (que bloqueia)
@@ -200,7 +235,7 @@ class BiasCalculator:
                         for partial_dict in tqdm(results_iterator, total=len(pool_args), desc="   Progresso Workers"):
                             if partial_dict is not None:
                                 partial_results.append(partial_dict)
-                        # --- FIM DA MODIFICAÇÃO ---
+                        # --- FIM DA MODIFICAÇÃO (tqdm) ---
                         
                 except Exception as e:
                     print(f"⚠️ ERRO GERAL durante a Passagem 1 paralela: {e}"); raise
