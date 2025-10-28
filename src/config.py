@@ -16,13 +16,13 @@ class Config:
     # Model settings
     BIAS_MODEL = "cardiffnlp/twitter-roberta-base-sentiment-latest"
     BATCH_SIZE = 64
-    MAX_LENGTH = 256
+    MAX_LENGTH = 128
     
     # Device configuration
     DEVICE = 0 if torch.cuda.is_available() else -1
     
     # Parallel processing
-    NUM_WORKERS = 2
+    NUM_WORKERS = os.cpu_count()
     
     # Algorithm settings
     ALPHA = 0.5
