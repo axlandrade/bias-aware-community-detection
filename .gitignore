@@ -231,4 +231,6 @@ notebooks/igraph_real_labels.json
 
 notebooks/igraph_id_maps.json
 
-processed_data/
+processed_data_tw20/
+
+TwiBot-20_sample.json

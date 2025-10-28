@@ -4,47 +4,28 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipe
 import numpy as np
 from tqdm import tqdm
 import json
-import glob
 import gc
-import csv
 import os
 import psutil 
-import pandas as pd 
 import multiprocessing as mp
-from collections import defaultdict # <--- Importação necessária
-from tqdm import tqdm
+from collections import defaultdict
 import time
 from .config import Config # Import relativo
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Any, Set
 
-# --- INÍCIO DA MODIFICAÇÃO (1/3) ---
-# Substitui a 'lambda' para ser 'picklable' (serializável) pelo multiprocessing
+# --- Factory (para corrigir erro de multiprocessing) ---
 def _defaultdict_factory():
-    """Função auxiliar para criar o dicionário padrão."""
     return {'score_sum': 0.0, 'tweet_count': 0}
-# --- FIM DA MODIFICAÇÃO ---
 
-
-# --- Função Auxiliar (Definida no nível superior para multiprocessing) ---
-def print_memory_usage(label=""):
-    try:
-        process = psutil.Process(os.getpid())
-        mem_info = process.memory_info()
-        print(f"   {label} RAM Usada: {mem_info.rss / (1024 * 1024):,.1f} MB")
-    except Exception: pass
-
-# --- Função do Worker (Passagem Única Paralela) ---
-# Esta função precisa do pipeline (modelo) carregado
-# Para evitar recarregar o modelo em cada worker, o inicializamos globalmente por worker
+# --- Inicializador do Worker (Carrega o LLM) ---
 worker_pipeline = None
 
 def init_worker_pipeline():
-    """Inicializador para o pool de multiprocessing: carrega o modelo LLM uma vez por worker."""
     global worker_pipeline
     if worker_pipeline is None:
         print(f"   [Worker {os.getpid()}] Carregando modelo LLM...")
         try:
-            cfg = Config() # Carregar config no worker
+            cfg = Config()
             worker_pipeline = pipeline(
                 "sentiment-analysis",
                 model=cfg.BIAS_MODEL,
@@ -55,257 +36,166 @@ def init_worker_pipeline():
             )
         except Exception as e:
             print(f"   [Worker {os.getpid()}] Erro ao carregar modelo: {e}")
-            worker_pipeline = "ERROR" # Sinalizar erro
+            worker_pipeline = "ERROR"
 
-def process_tweets_aggregate_bias(args_tuple):
-    """Lê arquivos, filtra, calcula score (batch) e retorna agregado parcial."""
+def process_user_tweets(user_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Processa os tweets de um ÚNICO usuário e retorna seu score de viés agregado.
+    Esta é a nova função do worker.
+    """
     global worker_pipeline
-    list_of_tweet_files, worker_num, nodes_valid_set, twibot_path, batch_size = args_tuple
-    
-    # --- Limite (removido para execução completa) ---
-    # TWEET_LIMIT_PER_WORKER = 3000 
-    # ---
-
     if worker_pipeline is None or worker_pipeline == "ERROR":
-        print(f"   [Worker {worker_num}] Modelo não carregado. Usando placeholder.")
-        # Fallback para placeholder se o modelo falhou ao carregar
-        local_pipeline = None
-    else:
-        local_pipeline = worker_pipeline
+        return None # Ignorar se o modelo não carregou
 
-    # --- INÍCIO DA MODIFICAÇÃO (2/3) ---
-    # Substituída a lambda pela função factory global
-    partial_bias_data = defaultdict(_defaultdict_factory)
-    # --- FIM DA MODIFICAÇÃO ---
+    user_id = user_data.get('ID')
+    tweet_texts = user_data.get('tweet', [])
     
-    tweets_found_count = 0 
-    stop_processing_flag = False
-    
-    print(f"   [Worker {worker_num}] Iniciando {len(list_of_tweet_files)} arquivo(s)...")
-    
-    current_batch_texts = []
-    current_batch_users = []
+    if not user_id or not tweet_texts:
+        return None
 
-    def process_batch(texts, users, pipeline):
-        """Processa o batch atual com o LLM e atualiza o dict agregado."""
-        if not texts: return 0
+    # Limpar textos (alguns podem ser 'None' ou vazios)
+    valid_texts = [str(t) for t in tweet_texts if str(t).strip()]
+    
+    if not valid_texts:
+        return None
+
+    # Processar tweets em batch (caso um usuário tenha milhares de tweets)
+    cfg = Config() # Pegar BATCH_SIZE
+    user_score_sum = 0.0
+    user_tweet_count = 0
+    
+    try:
+        # Passar todos os tweets do usuário de uma vez para o pipeline
+        results = worker_pipeline(valid_texts, batch_size=cfg.BATCH_SIZE)
         
-        scores = []
-        if pipeline:
-            try:
-                results = pipeline(texts, batch_size=batch_size)
-                for res in results:
-                    if res['label'] == 'positive' or res['label'] == 'LABEL_2': scores.append(res['score'])
-                    elif res['label'] == 'negative' or res['label'] == 'LABEL_0': scores.append(-res['score'])
-                    else: scores.append(0.0)
-            except Exception as e_infer:
-                 print(f"   [Worker {worker_num}] Erro inferência: {e_infer}. Usando placeholder p/ batch.")
-                 scores = [np.tanh((hash(txt) % 1000 - 500) / 250) for txt in texts] # Placeholder
-        else: # Placeholder
-            scores = [np.tanh((hash(txt) % 1000 - 500) / 250) for txt in texts]
-
-        # Agregar resultados
-        for user_id_str, score in zip(users, scores):
-            partial_bias_data[user_id_str]['score_sum'] += score
-            partial_bias_data[user_id_str]['tweet_count'] += 1
-        
-        return len(texts)
-
-    # Iterar pelos arquivos
-    for tweet_file_path in list_of_tweet_files:
-        if stop_processing_flag: # Se o limite foi atingido, pare de abrir novos arquivos
-            break
+        for res in results:
+            if res['label'] == 'positive' or res['label'] == 'LABEL_2':
+                user_score_sum += res['score']
+            elif res['label'] == 'negative' or res['label'] == 'LABEL_0':
+                user_score_sum -= res['score']
+            user_tweet_count += 1
             
-        try:
-            with open(os.path.join(twibot_path, tweet_file_path), 'r', encoding='utf-8') as infile:
-                for line in infile:
-                    
-                    # --- Lógica do Limite (desativada) ---
-                    # if 'TWEET_LIMIT_PER_WORKER' in locals() and TWEET_LIMIT_PER_WORKER > 0:
-                    #     if tweets_found_count >= TWEET_LIMIT_PER_WORKER:
-                    #         stop_processing_flag = True
-                    #         break 
-                    # ---
+    except Exception as e:
+        print(f"   [Worker {os.getpid()}] Erro ao processar tweets para usuário {user_id}: {e}")
+        return None
 
-                    try:
-                        tweet_data = json.loads(line)
-                        user_id_str = tweet_data.get('author_id')
-                        if user_id_str and user_id_str in nodes_valid_set:
-                            tweet_text = tweet_data.get('text', '').replace('\n', ' ').replace('\t', ' ')
-                            if tweet_text:
-                                current_batch_texts.append(tweet_text)
-                                current_batch_users.append(user_id_str)
-                                
-                                tweets_found_count += 1 # Incrementar o contador aqui
-                                
-                                # Processar se o batch estiver cheio
-                                if len(current_batch_texts) >= batch_size:
-                                    process_batch(current_batch_texts, current_batch_users, local_pipeline)
-                                    current_batch_texts = []
-                                    current_batch_users = []
-                                    
-                    except (json.JSONDecodeError, AttributeError): continue
-                    finally: del tweet_data
-        except Exception as e_file: print(f"   [Worker {worker_num}] Erro no arquivo {os.path.basename(tweet_file_path)}: {e_file}")
-    
-    # Processar o último batch restante
-    if current_batch_texts:
-        process_batch(current_batch_texts, current_batch_users, local_pipeline)
-        
-    # ATUALIZAR MENSAGEM DE SAÍDA
-    print(f"   [Worker {worker_num}] Concluído ({tweets_found_count:,} tweets processados)")
-    return partial_bias_data # Retorna o dicionário agregado
+    if user_tweet_count > 0:
+        return {'id': user_id, 'score_sum': user_score_sum, 'tweet_count': user_tweet_count}
+    else:
+        return None
 
 # --- Classe Principal ---
 class BiasCalculator:
     def __init__(self):
         self.config = Config()
-        self.pipeline = None 
-        
-    def get_or_calculate_bias_scores(self, G_nodes_set: set) -> Dict[str, float]:
-        """
-        Carrega scores de viés do arquivo ou executa o processo completo
-        de passagem única paralela.
-        """
-        print("\n🧠 Fase 2: Calculando/Carregando Scores de Viés...")
-        print_memory_usage("Início Viés")
 
+    def get_or_calculate_bias_scores(self, G_nodes_set: Set[str]) -> Dict[str, float]:
+        """
+        Carrega scores de viés do cache ou calcula lendo o JSONL do TwiBot-20.
+        """
+        print("\n🧠 Fase 2: Calculando/Carregando Scores de Viés (TwiBot-20)...")
         bias_file = self.config.BIAS_SCORES_FILE
-        
-        # --- 1. Tentar Carregar Resultado Final ---
-        print(f"💾 Verificando se o arquivo final '{bias_file}' já existe...")
-        calculation_needed = True 
-        bias_scores_real = None   
+
+        # --- 1. Tentar Carregar do Cache ---
         if os.path.exists(bias_file):
-            print(f"   Arquivo final encontrado! Carregando...")
+            print(f"   Arquivo de cache '{bias_file}' encontrado! Carregando...")
             try:
-                with open(bias_file, 'r', encoding='utf-8') as f: bias_scores_real = json.load(f)
-                if isinstance(bias_scores_real, dict) and bias_scores_real:
-                    print(f"   ✅ Scores carregados para {len(bias_scores_real)} usuários.")
-                    missing = [n for n in G_nodes_set if n not in bias_scores_real]
-                    if missing: print(f"   ⚠️ {len(missing)} nós do grafo sem score. Atribuindo 0.0.");
-                    for node in missing: bias_scores_real[node] = 0.0
-                    calculation_needed = False
-                else: calculation_needed = True; bias_scores_real = None 
-            except Exception as e: calculation_needed = True; bias_scores_real = None 
-        else: print(f"   Arquivo final não encontrado. Calculando...")
+                with open(bias_file, 'r') as f: bias_scores_final = json.load(f)
+                # Garantir que todos os nós do grafo tenham um score
+                missing = 0
+                for node in G_nodes_set:
+                    if node not in bias_scores_final:
+                        bias_scores_final[node] = 0.0
+                        missing += 1
+                if missing > 0: print(f"   ⚠️ {missing} nós do grafo sem score de viés. Atribuindo 0.0.")
+                print(f"   ✅ Scores carregados para {len(bias_scores_final)} usuários.")
+                return bias_scores_final
+            except Exception as e:
+                print(f"   ⚠️ Erro ao carregar cache: {e}. Reconstruindo...")
 
-        # --- Executar Cálculo Apenas se Necessário ---
-        if calculation_needed:
-            print("\n--- Iniciando cálculo de scores de viés (Single-Pass Paralelo) ---")
-            
-            # --- Lógica de I/O Local ---
-            # (Assume que /tmp/tweet_data existe, como no notebook)
-            LOCAL_TWEET_PATH = "/tmp/tweet_data" 
-            
-            # AVISO: Se rodar localmente no Windows, você DEVE ter criado C:\tmp\tweet_data
-            if os.name == 'nt' and not os.path.exists("C:\\tmp\\tweet_data"):
-                 print(f"--- ATENÇÃO WINDOWS: Lendo do caminho original {self.config.TWIBOT_PATH} ---")
-                 print(f"   (Caminho C:\\tmp\\tweet_data não encontrado)")
-                 LOCAL_TWEET_PATH = self.config.TWIBOT_PATH
-            elif not os.path.exists(LOCAL_TWEET_PATH):
-                 print(f"--- ATENÇÃO: Lendo do caminho original {self.config.TWIBOT_PATH} ---")
-                 print(f"   (Caminho {LOCAL_TWEET_PATH} não encontrado)")
-                 LOCAL_TWEET_PATH = self.config.TWIBOT_PATH
-            else:
-                 print(f"--- ATENÇÃO: Lendo tweets do disco local: {LOCAL_TWEET_PATH} ---")
-            
-            tweet_files = sorted([f for f in os.listdir(LOCAL_TWEET_PATH) 
-                                  if f.startswith('tweet_') and f.endswith('.json')])
-            # --- Fim da lógica de I/O ---
-            
-            if not tweet_files: 
-                print(f"⚠️ AVISO: Nenhum arquivo tweet_*.json encontrado em '{LOCAL_TWEET_PATH}'.")
-                bias_scores_real = {} # Vazio
-            else:
-                num_workers = self.config.NUM_WORKERS
-                print(f"\n--- Passagem Única: Processando {len(tweet_files)} arquivos em paralelo ({num_workers} workers) ---")
-                start_pass1 = time.time()
-                
-                # Dividir arquivos entre workers
-                files_per_worker = [[] for _ in range(num_workers)]
-                for i, f in enumerate(tweet_files): files_per_worker[i % num_workers].append(f)
-                
-                pool_args = [(files_per_worker[i], i, G_nodes_set, LOCAL_TWEET_PATH, self.config.BATCH_SIZE) 
-                             for i in range(num_workers) if files_per_worker[i]]
-                
-                partial_results = []
-                try:
-                    # initializer=init_worker_pipeline carrega o LLM em cada worker
-                    with mp.Pool(processes=len(pool_args), initializer=init_worker_pipeline) as pool:
-                        
-                        print(f"   Iniciando {len(pool_args)} workers. Acompanhe o progresso:")
-                        
-                        results_iterator = pool.imap(process_tweets_aggregate_bias, pool_args)
-                        
-                        for partial_dict in tqdm(results_iterator, total=len(pool_args), desc="   Progresso Workers"):
-                            if partial_dict is not None:
-                                partial_results.append(partial_dict)
-                        
-                except Exception as e:
-                    print(f"⚠️ ERRO GERAL durante a Passagem 1 paralela: {e}"); raise
-                
-                end_pass1 = time.time()
-                print(f"\n📊 Processamento paralelo concluído em {end_pass1 - start_pass1:.2f} segundos.")
-                print_memory_usage("Após processamento paralelo:")
-
-                # --- Agregar Resultados Parciais ---
-                print("\n⚙️ Agregando resultados dos workers...")
-                start_agg = time.time()
-                
-                # --- INÍCIO DA MODIFICAÇÃO (3/3) ---
-                # Substituída a lambda pela função factory global
-                user_bias_data_final = defaultdict(_defaultdict_factory)
-                # --- FIM DA MODIFICAÇÃO ---
-                
-                total_processed_tweets = 0
-                for partial_dict in partial_results:
-                    for user_id, data in partial_dict.items():
-                        user_bias_data_final[user_id]['score_sum'] += data['score_sum']
-                        user_bias_data_final[user_id]['tweet_count'] += data['tweet_count']
-                        total_processed_tweets += data['tweet_count']
-                
-                del partial_results; gc.collect() 
-                end_agg = time.time()
-                print(f"   ↳ Total de tweets processados: {total_processed_tweets:,}")
-                print(f"   ✅ Agregação concluída em {end_agg - start_agg:.2f}s para {len(user_bias_data_final):,} usuários.")
-                print_memory_usage("Após agregação:")
-
-                # --- Calcular o Score Final (Média) ---
-                bias_scores_real = {} 
-                print("\n⚙️ Calculando scores médios de viés por usuário...")
-                for user_id, data in user_bias_data_final.items():
-                    bias_scores_real[user_id] = data['score_sum'] / data['tweet_count'] if data['tweet_count'] > 0 else 0.0
-                del user_bias_data_final; gc.collect()
-
-            # --- Garantir Scores e Salvar ---
-            print("\n⚙️ Garantindo scores..."); missing=0
-            try:
-                for name in G_nodes_set: # Usar o set G_nodes_set original
-                     if name not in bias_scores_real: bias_scores_real[name]=0.0; missing+=1
-                if missing > 0: print(f"   ↳ {missing:,} nós sem tweets receberam score 0.0.")
-            except Exception as e: print(f"   ⚠️ Erro: {e}")
-            
-            print(f"\n💾 Salvando scores finais em '{bias_file}'..."); 
-            try:
-                with open(bias_file, 'w', encoding='utf-8') as f: json.dump(bias_scores_real, f)
-                print("   ✅ Scores finais salvos.");
-            except Exception as e: print(f"   ⚠️ Erro ao salvar: {e}")
-
-            print("\n✅ Cálculo de viés (Completo) concluído."); print_memory_usage("Final:")
-            gc.collect()
-
-        # --- Fim do Bloco if calculation_needed ---
+        # --- 2. Calcular do Zero ---
+        print("\n   Cache não encontrado. Calculando do zero...")
         
-        if bias_scores_real is None:
-             if os.path.exists(bias_file):
-                 try:
-                     with open(bias_file, 'r', encoding='utf-8') as f: bias_scores_real = json.load(f)
-                 except: pass 
-                 
-        if 'bias_scores_real' not in locals() or not isinstance(bias_scores_real, dict):
-             raise RuntimeError("ERRO CRÍTICO: 'bias_scores_real' não definida/carregada.")
-        elif not bias_scores_real and calculation_needed: 
-             print("\n⚠️ AVISO FINAL: 'bias_scores_real' vazio após cálculo.")
+        # --- Carregar Dados Brutos (com lógica robusta) ---
+        all_users_data = []
+        print(f"   Lendo {self.config.TWIBOT20_FILE}...")
+        with open(self.config.TWIBOT20_FILE, 'r', encoding='utf-8') as f:
+            try:
+                data = json.load(f)
+                if isinstance(data, list):
+                    print("   Formato detectado: Lista JSON.")
+                    all_users_data = data
+            except json.JSONDecodeError:
+                print("   Formato detectado: JSON-Lines. (Lendo...)")
+                f.seek(0)
+                for line in tqdm(f, desc="   Lendo arquivo JSONL"):
+                    try:
+                        all_users_data.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        # --- Fim da Carga ---
+
+        if not all_users_data:
+             raise ValueError("Nenhum dado lido do arquivo fonte.")
+
+        # Filtrar apenas aqueles que estão no nosso grafo final (G_nodes_set)
+        users_to_process = []
+        print(f"   Filtrando usuários que estão no grafo final...")
+        for user in all_users_data:
+             if user.get('ID') in G_nodes_set and user.get('tweet'):
+                 users_to_process.append(user)
         
-        return bias_scores_real # Retorna o dicionário
+        if not users_to_process:
+            print("⚠️ AVISO: Nenhum usuário com tweets encontrado no grafo. Retornando scores nulos.")
+            return {node: 0.0 for node in G_nodes_set}
+            
+        print(f"   {len(users_to_process):,} usuários (com tweets) a serem processados.")
+        
+        # --- 3. Processamento Paralelo ---
+        num_workers = self.config.NUM_WORKERS
+        print(f"--- Iniciando processamento paralelo ({num_workers} workers) ---")
+        start_pass = time.time()
+        
+        user_bias_data_final = defaultdict(_defaultdict_factory)
+
+        try:
+            with mp.Pool(processes=num_workers, initializer=init_worker_pipeline) as pool:
+                
+                results_iterator = pool.imap(process_user_tweets, users_to_process)
+                
+                for result in tqdm(results_iterator, total=len(users_to_process), desc="   Progresso (Usuários)"):
+                    if result:
+                        user_id = result['id']
+                        user_bias_data_final[user_id]['score_sum'] += result['score_sum']
+                        user_bias_data_final[user_id]['tweet_count'] += result['tweet_count']
+                        
+        except Exception as e:
+            print(f"⚠️ ERRO GERAL durante o processamento paralelo: {e}"); raise
+        
+        end_pass = time.time()
+        print(f"\n📊 Processamento paralelo concluído em {end_pass - start_pass:.2f} segundos.")
+
+        # --- 4. Agregar e Salvar ---
+        print("\n⚙️ Calculando scores médios e salvando...")
+        bias_scores_final = {}
+        for user_id, data in user_bias_data_final.items():
+            if data['tweet_count'] > 0:
+                bias_scores_final[user_id] = data['score_sum'] / data['tweet_count']
+            else:
+                bias_scores_final[user_id] = 0.0
+        
+        # Garantir que todos os nós do grafo original tenham um score
+        missing = 0
+        for node in G_nodes_set:
+            if node not in bias_scores_final:
+                bias_scores_final[node] = 0.0
+                missing += 1
+        if missing > 0: print(f"   ↳ {missing:,} nós sem tweets receberam score 0.0.")
+
+        print(f"\n💾 Salvando scores finais em '{bias_file}'..."); 
+        try:
+            with open(bias_file, 'w', encoding='utf-8') as f: json.dump(bias_scores_final, f)
+            print("   ✅ Scores finais salvos.");
+        except Exception as e: print(f"   ⚠️ Erro ao salvar: {e}")
+        
+        return bias_scores_final
