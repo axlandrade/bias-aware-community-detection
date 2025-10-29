@@ -1,0 +1,216 @@
+# src/bias_calculator.py - VERSÃO BASE (MODELO DE SENTIMENTO)
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+import numpy as np
+from tqdm import tqdm
+import json
+import gc
+import os
+import psutil # Re-adicionado, pode ser necessário remover se causar problemas
+import multiprocessing as mp
+from collections import defaultdict
+import time
+from .config import Config # Import relativo
+from typing import Dict, List, Any, Set
+import traceback # Para log de erros
+
+# --- Factory (necessário) ---
+def _defaultdict_factory():
+    return {'score_sum': 0.0, 'tweet_count': 0}
+
+# --- Inicializador do Worker (Carrega o MODELO DE SENTIMENTO) ---
+worker_pipeline = None # Usar pipeline aqui é mais simples para sentimento
+
+def init_worker_pipeline():
+    # --- PRINT IMEDIATO PARA VER SE RODA ---
+    print(f"--- [Worker {os.getpid()}] init_worker_pipeline CHAMADO (Sentimento) ---")
+    global worker_pipeline
+    if worker_pipeline is None:
+        print(f"   [Worker {os.getpid()}] Carregando modelo de SENTIMENTO...")
+        try:
+            cfg = Config()
+            # --- CARREGANDO O MODELO DE SENTIMENTO ORIGINAL ---
+            worker_pipeline = pipeline(
+                "sentiment-analysis",
+                model=cfg.BIAS_MODEL, # Deve ser "cardiffnlp/twitter-roberta-base-sentiment-latest"
+                tokenizer=cfg.BIAS_MODEL,
+                device=cfg.DEVICE, # Usará GPU se disponível
+                max_length=cfg.MAX_LENGTH,
+                truncation=True
+            )
+            print(f"   [Worker {os.getpid()}] Modelo de SENTIMENTO carregado.")
+            if cfg.DEVICE == 0 and torch.cuda.is_available():
+                 print(f"   [Worker {os.getpid()}] Usando GPU.")
+            else:
+                 print(f"   [Worker {os.getpid()}] Usando CPU.")
+
+        except Exception as e:
+            print(f"   [Worker {os.getpid()}] ########## ERRO FATAL NO INIT (Sentimento) ##########")
+            print(f"   [Worker {os.getpid()}] Erro: {e}")
+            print(traceback.format_exc())
+            print(f"   [Worker {os.getpid()}] ############################################")
+            worker_pipeline = "ERROR"
+
+def process_user_tweets(user_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Processa os tweets de um ÚNICO usuário com o modelo de SENTIMENTO.
+    """
+    user_id_for_log = user_data.get('ID', 'ID_DESCONHECIDO')
+    # --- PRINT IMEDIATO ---
+    # print(f"--- [Worker {os.getpid()}] process_user_tweets CHAMADO (Sentimento) User: {user_id_for_log} ---") # Opcional, pode poluir
+    global worker_pipeline
+
+    if worker_pipeline is None or worker_pipeline == "ERROR":
+        # print(f"   [Worker {os.getpid()}] Modelo de sentimento não carregado. Retornando None User: {user_id_for_log}") # Opcional
+        return None
+
+    user_id = user_data.get('ID')
+    tweet_texts = user_data.get('tweet', [])
+
+    if not user_id or not tweet_texts: return None
+    valid_texts = [str(t) for t in tweet_texts if str(t).strip()]
+    if not valid_texts: return None
+
+    cfg = Config()
+    user_score_sum = 0.0
+    user_tweet_count = 0
+
+    try:
+        # Usar o pipeline diretamente é mais fácil para sentimento
+        results = worker_pipeline(valid_texts, batch_size=cfg.BATCH_SIZE)
+
+        for res in results:
+            # Lógica específica do modelo de sentimento
+            if res['label'] == 'positive' or res['label'] == 'LABEL_2':
+                user_score_sum += res['score']
+            elif res['label'] == 'negative' or res['label'] == 'LABEL_0':
+                user_score_sum -= res['score']
+            # Ignorar 'neutral' ou outros labels
+            user_tweet_count += 1
+
+    except Exception as e:
+        print(f"   [Worker {os.getpid()}] # ERRO INESPERADO (Sentimento) User {user_id} #")
+        print(f"   [Worker {os.getpid()}] Erro: {e}")
+        print(traceback.format_exc())
+        print(f"   [Worker {os.getpid()}] ###########################################")
+        return None
+
+    if user_tweet_count > 0:
+        return {'id': user_id, 'score_sum': user_score_sum, 'tweet_count': user_tweet_count}
+    else:
+        # print(f"   [Worker {os.getpid()}] Aviso: Nenhum tweet processado (Sentimento) User {user_id}.") # Opcional
+        return None
+
+
+# --- Classe Principal (Sem alterações na lógica interna, apenas título) ---
+class BiasCalculator:
+    def __init__(self):
+        self.config = Config()
+
+    def _load_users_from_file(self, filepath):
+        # ... (código que carrega lista JSON ou JSONL - SEM MUDANÇAS) ...
+        users = []
+        with open(filepath, 'r', encoding='utf-8') as f:
+            try:
+                data = json.load(f); return data
+            except json.JSONDecodeError: pass
+            f.seek(0)
+            for line in tqdm(f, desc="   Lendo arquivo JSONL"):
+                try: users.append(json.loads(line))
+                except json.JSONDecodeError: continue
+            return users
+        raise ValueError("Não foi possível ler dados.")
+
+
+    def get_or_calculate_bias_scores(self, G_nodes_set: Set[str]) -> Dict[str, float]:
+        print("\n🧠 Fase 2: Calculando/Carregando Scores de Viés (MODELO ORIGINAL - SENTIMENTO)...") # Título Atualizado
+        bias_file = self.config.BIAS_SCORES_FILE
+
+        # --- Tentar Carregar Cache ---
+        if os.path.exists(bias_file):
+            print(f"   Arquivo de cache '{bias_file}' encontrado! Carregando...")
+            try:
+                # (Lógica de carregar cache - sem alterações)
+                with open(bias_file, 'r') as f: bias_scores_final = json.load(f)
+                missing = 0
+                for node in G_nodes_set:
+                    if node not in bias_scores_final:
+                        bias_scores_final[node] = 0.0
+                        missing += 1
+                if missing > 0: print(f"   ⚠️ {missing} nós do grafo sem score. Atribuindo 0.0.")
+                print(f"   ✅ Scores carregados para {len(bias_scores_final)} usuários.")
+                return bias_scores_final
+            except Exception as e:
+                print(f"   ⚠️ Erro ao carregar cache: {e}. Reconstruindo...")
+
+        print("\n   Cache não encontrado. Calculando do zero...")
+
+        all_users_data = self._load_users_from_file(self.config.TWIBOT20_FILE)
+
+        users_to_process = []
+        print(f"   Filtrando usuários que estão no grafo...")
+        for user in all_users_data:
+             if user.get('ID') in G_nodes_set and user.get('tweet'):
+                 users_to_process.append(user)
+
+        del all_users_data; gc.collect()
+
+        if not users_to_process:
+            print("⚠️ AVISO: Nenhum usuário com tweets encontrado no grafo.")
+            return {node: 0.0 for node in G_nodes_set}
+
+        print(f"   {len(users_to_process):,} usuários (com tweets) a serem processados.")
+
+        # --- Processamento Paralelo ---
+        # Usar NUM_WORKERS do config.py (deve ser > 1)
+        num_workers = self.config.NUM_WORKERS
+        print(f"--- Iniciando processamento paralelo ({num_workers} workers) ---")
+        start_pass = time.time()
+
+        user_bias_data_final = defaultdict(_defaultdict_factory)
+
+        try:
+            # Manter 'spawn' para Windows/macOS
+            context = mp.get_context('spawn')
+            # Usar o initializer correto que carrega o pipeline de sentimento
+            with context.Pool(processes=num_workers, initializer=init_worker_pipeline) as pool:
+                results_iterator = pool.imap_unordered(process_user_tweets, users_to_process)
+
+                for result in tqdm(results_iterator, total=len(users_to_process), desc="   Progresso (Usuários)"):
+                    if result:
+                        user_id = result['id']
+                        user_bias_data_final[user_id]['score_sum'] += result['score_sum']
+                        user_bias_data_final[user_id]['tweet_count'] += result['tweet_count']
+
+        except Exception as e:
+            print(f"⚠️ ERRO GERAL durante processamento paralelo: {e}");
+            print(traceback.format_exc())
+            raise
+
+        end_pass = time.time()
+        print(f"\n📊 Processamento paralelo concluído em {end_pass - start_pass:.2f} segundos.")
+
+        # --- Calcular Scores Médios e Salvar ---
+        print("\n⚙️ Calculando scores médios e salvando...")
+        bias_scores_final = {}
+        processed_user_count = 0
+        for user_id, data in user_bias_data_final.items():
+            if data['tweet_count'] > 0:
+                bias_scores_final[user_id] = data['score_sum'] / data['tweet_count']
+                processed_user_count += 1
+            else:
+                bias_scores_final[user_id] = 0.0
+
+        print(f"   DEBUG: Scores médios calculados para {processed_user_count} usuários.")
+
+        nodes_without_scores = len(G_nodes_set) - processed_user_count
+        if nodes_without_scores > 0:
+             print(f"   ↳ {nodes_without_scores:,} nós receberam score 0.0.")
+
+        print(f"\n💾 Salvando scores finais em '{bias_file}'...");
+        try:
+            with open(bias_file, 'w', encoding='utf-8') as f: json.dump(bias_scores_final, f)
+            print("   ✅ Scores finais salvos.");
+        except Exception as e: print(f"   ⚠️ Erro ao salvar: {e}")
+
+        return bias_scores_final

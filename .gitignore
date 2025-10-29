@@ -234,3 +234,7 @@ notebooks/igraph_id_maps.json
 processed_data_tw20/
 
 TwiBot-20_sample.json
+
+TwiBot-20/
+
+processed_data_tw20_json/
