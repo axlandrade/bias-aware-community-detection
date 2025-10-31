@@ -1,5 +1,7 @@
 # Detecção de Comunidades Sensível ao Viés via Programação Semidefinida e Heurística
 
+**Autores (Implementação):** Axl S. Andrade, Nelson Maculan, Ronaldo M. Gregório, Sérgio A. Monteiro, Vitor S. Ponciano
+
 Este repositório fornece a implementação e a estrutura de validação experimental para a metodologia de detecção de comunidades sensível ao viés, conforme proposto no artigo: "*Detecção de Viés Social em Redes Sociais via Programação Semidefinida e Análise Estrutural de Grafos*".
 
 O objetivo principal deste código é particionar grafos de redes sociais balanceando dois objetivos concorrentes:
