@@ -141,7 +141,7 @@ Abra e execute o notebook `notebooks/Twi-Bot-20-22.ipynb` célula por célula. O
 
 ## Licença
 
-Este projeto é licenciado sob os termos da [MIT License]([bias-aware-community-detection/LICENSE at main · axlandrade/bias-aware-community-detection](https://github.com/axlandrade/bias-aware-community-detection/blob/main/LICENSE)).
+Este projeto é licenciado sob os termos da [MIT License](https://github.com/axlandrade/bias-aware-community-detection/blob/main/LICENSE).
 
 ## Citação
 
