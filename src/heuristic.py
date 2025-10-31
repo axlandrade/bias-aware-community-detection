@@ -14,7 +14,7 @@ class EnhancedLouvainWithBias:
     Combina modularidade (Louvain) com um refinamento iterativo que
     balanceia ganho estrutural e ganho de viés usando 'alpha'.
     """
-    def __init__(self, alpha=0.5, max_iterations=20, verbose=True):
+    def __init__(self, alpha=0.5, max_iterations=100, verbose=True):
         self.alpha = alpha
         self.max_iterations_refine = max_iterations # Iterações para o refinamento
         self.verbose = verbose
