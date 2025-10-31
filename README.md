@@ -1,5 +1,7 @@
 # Detecção de Comunidades Sensível ao Viés via Programação Semidefinida e Heurística
 
+[English version here](README_en.md)
+
 **Autores:** Axl S. Andrade, Nelson Maculan, Ronaldo M. Gregório, Sérgio A. Monteiro, Vitor S. Ponciano
 
 Este repositório fornece a implementação e a estrutura de validação experimental para a metodologia de detecção de comunidades sensível ao viés, conforme proposto no artigo: "*Detecção de Viés Social em Redes Sociais via Programação Semidefinida e Análise Estrutural de Grafos*".
@@ -149,4 +151,4 @@ Este projeto é licenciado sob os termos da [MIT License](https://github.com/axl
 
 Se você utilizar este código ou metodologia em sua pesquisa, por favor, cite o artigo original:
 
-[Inseriraqui a citação formal do artigo quando publicado]
+[Inserir aqui a citação formal do artigo quando publicado]
