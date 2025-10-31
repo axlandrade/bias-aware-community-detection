@@ -1,4 +1,4 @@
-# Implementação: Detecção de Comunidades Sensível ao Viés via Programação Semidefinida e Heurística
+# Detecção de Comunidades Sensível ao Viés via Programação Semidefinida e Heurística
 
 Este repositório fornece a implementação e a estrutura de validação experimental para a metodologia de detecção de comunidades sensível ao viés, conforme proposto no artigo: "*Detecção de Viés Social em Redes Sociais via Programação Semidefinida e Análise Estrutural de Grafos*".
 
@@ -22,15 +22,15 @@ O problema é então resolvido maximizando `Tr(M*X)`, o que é feito por duas ab
 
 O código é modularizado para permitir a fácil alternância entre datasets (TwiBot-20 e TwiBot-22) e a clara separação de responsabilidades.
 
-| Arquivo                         | Propósito                                                    |
-| :------------------------------ | :----------------------------------------------------------- |
-| `notebooks/Twi-Bot-20-22.ipynb` | **Notebook Principal.** Orquestra todo o pipeline experimental: carregamento, cálculo, execução dos algoritmos e avaliação. |
-| `src/config.py`                 | **Arquivo de Configuração Central.** O usuário deve editar este arquivo para selecionar o dataset (`DATASET_MODE`), caminhos e hiperparâmetros (como `ALPHA`). |
-| `src/data_utils.py`             | Contém as classes `TwiBot20Loader` (para o formato JSON único) e `TwiBot22Loader` (para o formato CSV + múltiplos JSONs). |
+| Arquivo                         | Propósito                                                                                                                                                                |
+| :------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `notebooks/Twi-Bot-20-22.ipynb` | **Notebook Principal.** Orquestra todo o pipeline experimental: carregamento, cálculo, execução dos algoritmos e avaliação.                                              |
+| `src/config.py`                 | **Arquivo de Configuração Central.** O usuário deve editar este arquivo para selecionar o dataset (`DATASET_MODE`), caminhos e hiperparâmetros (como `ALPHA`).           |
+| `src/data_utils.py`             | Contém as classes `TwiBot20Loader` (para o formato JSON único) e `TwiBot22Loader` (para o formato CSV + múltiplos JSONs).                                                |
 | `src/bias_calculator.py`        | Contém a lógica para carregar o modelo de IA de viés político (`matous-volf/political-leaning-politics`) e calcular os scores de viés para ambos os formatos de dataset. |
-| `src/heuristic.py`              | Implementação da heurística `EnhancedLouvainWithBias`.       |
-| `src/sdp_model.py`              | Implementação do solver exato `BiasAwareSDP` usando `cvxpy`. |
-| `src/evaluation.py`             | Implementação do `ComprehensiveEvaluator` para calcular todas as métricas (Modularidade, Separação de Viés, Pureza, etc.). |
+| `src/heuristic.py`              | Implementação da heurística `EnhancedLouvainWithBias`.                                                                                                                   |
+| `src/sdp_model.py`              | Implementação do solver exato `BiasAwareSDP` usando `cvxpy`.                                                                                                             |
+| `src/evaluation.py`             | Implementação do `ComprehensiveEvaluator` para calcular todas as métricas (Modularidade, Separação de Viés, Pureza, etc.).                                               |
 
 ## Pré-requisitos e Instalação
 
