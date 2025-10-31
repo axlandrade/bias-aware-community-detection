@@ -60,7 +60,7 @@ O projeto requer Python 3.10+ e várias bibliotecas científicas. Recomenda-se o
     # Instalar o restante das bibliotecas
     pip install networkx python-louvain pandas tqdm psutil transformers matplotlib seaborn tabulate cvxpy jupyter
     ```
-    (Alternativamente, crie um arquivo `requirements.txt` com as bibliotecas acima).
+    (Alternativamente, crie um arquivo `requirements.txt` com as bibliotecas acima ou execute as células no notebook).
 
 ## Aquisição dos Dados (Importante)
 
