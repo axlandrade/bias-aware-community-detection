@@ -1,5 +1,7 @@
 # Bias-Aware Community Detection
 
+[English version here](README_en.md)
+
 ### Autores
 
 **Axl S. Andrade**, **Nelson Maculan**, **Ronaldo M. Gregório**, **Sérgio A. Monteiro**, **Vitor S. Ponciano** 

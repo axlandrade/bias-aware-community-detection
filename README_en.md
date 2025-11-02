@@ -1,152 +1,171 @@
-# Bias-Aware Community Detection via Semidefinite Programming and Heuristics
+# Bias-Aware Community Detection
 
-**Authors:** Axl S. Andrade, Nelson Maculan, Ronaldo M. Gregório, Sérgio A. Monteiro, Vitor S. Ponciano
+### Authors
 
-This repository provides the implementation and experimental framework for the bias-aware community detection methodology, as proposed in the paper: "*Social Bias Detection in Social Networks via Semidefinite Programming and Structural Graph Analysis*".
+**Axl S. Andrade**, **Nelson Maculan**, **Ronaldo M. Gregório**, **Sérgio A. Monteiro**, **Vitor S. Ponciano** 
 
-The primary objective of this code is to partition social network graphs by balancing two competing objectives:
-1.  **Structural Cohesion (Modularity):** Communities should be densely connected internally.
-2.  **Ideological Homogeneity (Bias):** Members within the same community should share a similar political/ideological bias.
+---
 
-This repository provides implementations for both the exact solution (SDP) and the heuristic approximation (Enhanced Louvain) described in the article.
+## 1. Overview
 
-## Methodology
+This repository presents an academic implementation of the *Bias-Aware Community Detection* heuristic, which extends the Louvain method to incorporate political bias information into the modularity structure. The approach aims to balance topological structure and ideological alignment by maximizing the following objective function:
 
-The methodology is centered on a unified objective function, controlled by a hyperparameter `alpha` (`α`), which weights the importance of structure (`B`, the modularity matrix) versus bias (`C`, the bias covariance matrix).
+$$(1 - \alpha) Q(C) + \alpha B(C)$$
 
-`M = (1 - α) * B + α * C`
+where:
 
-The problem is then solved by maximizing `Tr(M*X)`, which is approached in two ways:
-1.  **`BiasAwareSDP`**: A Semidefinite Programming (SDP) relaxation that finds the optimal solution. It is computationally expensive and only feasible for small graphs (< 1500 nodes).
-2.  **`EnhancedLouvainWithBias`**: A fast and scalable heuristic, based on the Louvain algorithm, which approximates the optimal solution in large-scale graphs.
+- $Q(C)$ represents the structural modularity;
+- $B(C)$ quantifies the ideological homogeneity within communities;
+- $\alpha \in [0,1]$ is the weighting parameter between structure and bias.
 
-## Repository Structure
+The method was experimentally validated on the **FACTOID Dataset**, demonstrating superior performance to the classical Louvain algorithm ($\alpha = 0$) in detecting ideologically coherent communities.
 
-The code is modularized to allow for easy switching between datasets (TwiBot-20 and TwiBot-22) and a clear separation of concerns.
+---
 
-| File                            | Purpose                                                                                                                                               |
-| :------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `notebooks/Twi-Bot-20-22.ipynb` | **Main Notebook.** Orchestrates the entire experimental pipeline: loading, computation, algorithm execution, and evaluation.                          |
-| `src/config.py`                 | **Central Configuration File.** The user must edit this file to select the dataset (`DATASET_MODE`), paths, and hyperparameters (like `ALPHA`).       |
-| `src/data_utils.py`             | Contains the `TwiBot20Loader` (for the single JSON format) and `TwiBot22Loader` (for the CSV + multiple JSONs format) classes.                        |
-| `src/bias_calculator.py`        | Contains the logic to load the political bias AI model (`matous-volf/political-leaning-politics`) and calculate bias scores for both dataset formats. |
-| `src/heuristic.py`              | Implementation of the `EnhancedLouvainWithBias` heuristic.                                                                                            |
-| `src/sdp_model.py`              | Implementation of the `BiasAwareSDP` exact solver using `cvxpy`.                                                                                      |
-| `src/evaluation.py`             | Implementation of the `ComprehensiveEvaluator` to calculate all metrics (Modularity, Bias Separation, Purity, etc.).                                  |
+## 2. Dataset: FACTOID
 
-## Prerequisites and Installation
+The **FACTOID Dataset** ([CAISA Lab, University of Amsterdam](https://github.com/caisa-lab/FACTOID-dataset)) constitutes the experimental core of this project.  
+It includes:
 
-The project requires Python 3.10+ and several scientific libraries. Using a virtual environment is highly recommended.
+- A graph of Reddit user interactions (submissions and replies);  
+- Text corpus with factual and ideological annotations;  
+- Political bias labels based on verified media domains (left/right/center).
 
-1.  Clone this repository:
-    ```bash
-    git clone [https://github.com/axlandrade/bias-aware-community-detection](https://github.com/axlandrade/bias-aware-community-detection)
-    cd bias-aware-community-detection
-    ```
+FACTOID was chosen because it contains an **explicit ground-truth of political polarization**, enabling quantitative comparison between predicted and reference partitions.
 
-2.  Create and activate a virtual environment:
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # (Linux/macOS)
-    # or
-    .\.venv\Scripts\activate   # (Windows)
-    ```
+> **Attribution:** This project uses data derived from the public FACTOID repository maintained by CAISA Lab, University of Amsterdam.
 
-3.  Install dependencies. For environments with an NVIDIA GPU (recommended), install PyTorch with CUDA support first:
-    ```bash
-    # Install PyTorch (CUDA 12.1 or higher)
-    pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu121](https://download.pytorch.org/whl/cu121)
-    
-    # Install remaining libraries
-    pip install networkx python-louvain pandas tqdm psutil transformers matplotlib seaborn tabulate cvxpy jupyter
-    ```
-    (Alternatively, create a `requirements.txt` file with the libraries above or run the installation cells in the notebook).
+---
 
-## Data Acquisition (Important)
+## 3. Project Structure
 
-This repository **does not** distribute the TwiBot-20 or TwiBot-22 datasets. Due to their terms of use, researchers must obtain the data directly from the official sources and place them in the project's root folder.
-
-* **TwiBot-20:** The dataset (containing `train.json`, `dev.json`, etc.) can be requested from its official repository: [BunsenFeng/TwiBot-20](https://github.com/GabrielHam/TwiBot-20)
-* **TwiBot-22:** The dataset (containing `label.csv`, `edge.csv`, `tweet/` folder, etc.) can be requested from the official website: [LuoUndergradXJTU/TwiBot-22](https://twibot22.github.io/)
-
-The expected folder structure in the project root is:
 ```
-/bias-aware-community-detection
-    /TwiBot-20
-        train.json
-        dev.json
-        test.json
-        support.json
-    /TwiBot-22
-        /data
-            label.csv
-            edge.csv
-        /tweet
-            tweet_0.json
-            ...
-    /src
-        __init__.py
-        bias_calculator.py
-        config.py
-        data_utils.py
-        evaluation.py
-        heuristic.py
-        sdp_model.py
-    /notebooks
-        Twi-Bot-20-22.ipynb
+bias-aware-community-detection/
+│
+├── src/
+│   ├── heuristic.py              # Bias-Aware Louvain heuristic implementation
+│   ├── reddit_user_dataset.py    # FACTOID handling and caching
+│   ├── fake_news_detection.py    # Reading of politically biased domains
+│   ├── bias_calculator.py        # Computation of bias_score b(v)
+│   ├── evaluation.py             # Evaluation with ARI and NMI
+│   ├── sdp_model.py              # Optional semidefinite formulation
+│   ├── data_utils.py             # Utility functions
+│   ├── config.py                 # Global configurations
+│   └── __init__.py
+│
+├── FACTOID/
+│   ├── reddit_corpus_unbalanced_filtered.gzip
+│   ├── social_graph_data/
+│   └── fn_domains_verified
+│
+├── processed_factoid/
+│   ├── social_graph.gml
+│   ├── factoid_bias_groundtruth.csv
+│   └── factoid_alpha_sweep.csv
+│
+├── validar_heuristica.ipynb      # Main validation notebook
+└── README.md
 ```
 
-## Execution Guide
+---
 
-The experiment is controlled centrally via `src/config.py`.
+## 4. Pipeline Execution
 
-### 1. Select the Dataset
+The experiment can be fully reproduced using the notebook `validar_heuristica.ipynb`.
 
-Open `src/config.py` and set the `DATASET_MODE` flag to the desired dataset:
+**Steps:**
 
-```python
-# To run TwiBot-20
-DATASET_MODE = "TWIBOT_20"
+1. Install dependencies.  
+2. Place the FACTOID files in the specified directories.  
+3. Execute the notebook end-to-end.
 
-# To run TwiBot-22
-DATASET_MODE = "TWIBOT_22"
+The pipeline performs:
+
+- Construction of the social graph $G$;  
+- Computation of $b(v)$ (bias_score) and ground-truth labels;  
+- Execution of the following methods:  
+  - Standard Louvain ($\alpha = 0.0$)  
+  - Bias-Aware Heuristic ($\alpha = 0.5$)  
+- Comparative evaluation via ARI and NMI metrics.
+
+> **Note:** Full pipeline execution is recommended on **Google Colab**, due to native GPU support (T4/V100) and automatic Python environment setup. This ensures reproducibility, accelerates computation, and simplifies dependency management.
+
+---
+
+## 5. Figure 1 — FACTOID Experimental Workflow
+
+```text
+┌──────────────────────────────┐
+│        FACTOID Dataset       │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│  Computation of bias_score   │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Enhanced Louvain (α ∈ [0,1]) │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Comparison with baseline     │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│     Evaluation (ARI / NMI)   │
+└──────────────────────────────┘
 ```
 
-### 2. (If TwiBot-20) Select the Subset
+*Figure 1 — Experimental workflow of the proposed method.*
 
-If using TwiBot-20, define which JSON file to use (e.g., `train.json`, `test.json`) in `src/config.py`:
+---
 
-```python
-# In src/config.py, inside the if DATASET_MODE == "TWIBOT_20" block:
-DATASET_FILE_PATH = os.path.join(DATA_DIR, "train.json") # or dev.json, test.json, support.json
+## 6. Experimental Results
+
+| Method                        | α    | ARI   | NMI   |
+| ----------------------------- | ---- | ----- | ----- |
+| Louvain (baseline)            | 0.0  | 0.054 | 0.098 |
+| Bias-Aware Louvain (proposed) | 0.5  | 0.452 | 0.256 |
+
+The proposed heuristic achieved better alignment with the political ground-truth, showing that incorporating the bias term $B(C)$ improves ideological separation without compromising structural cohesion.
+
+**Adjusted Rand Index (ARI)** and **Normalized Mutual Information (NMI)** are standard metrics for supervised clustering evaluation, used to quantify the similarity between predicted ($C_{pred}$) and ground-truth ($C_{GT}$) partitions.  
+
+- **ARI** measures chance-corrected agreement, ranging from $-1$ (complete disagreement) to $1$ (perfect match):  
+  $$ARI = \frac{RI - E[RI]}{\max(RI) - E[RI]}$$  
+  where $RI$ is the raw Rand Index and $E[RI]$ its expected value under random partitioning.  
+
+- **NMI** evaluates the mutual information between partitions, normalized by their average informational content:  
+  $$NMI(C_{pred}, C_{GT}) = \frac{2 \, I(C_{pred}; C_{GT})}{H(C_{pred}) + H(C_{GT})}$$  
+  where $I$ is the mutual information and $H$ represents entropy.  
+
+Higher ARI and NMI values indicate stronger agreement between partitions, thus greater ability of the algorithm to detect ideologically consistent communities.
+
+---
+
+## 7. References
+
+1. Glenski, M., et al. (2023). *FACTOID: Fact-Checking and Ideology Dataset for Reddit.* CAISA Lab, University of Amsterdam.  
+   Available at: [https://github.com/caisa-lab/FACTOID-dataset](https://github.com/caisa-lab/FACTOID-dataset)
+
+2. Andrade, A. S., Maculan, N., Gregório, R. M., Monteiro, S. A., & Ponciano, V. S. (2025). *Bias-Aware Community Detection via Modularity–Bias Optimization.* Manuscript in preparation.
+
+---
+
+## 8. Citation
+
+If this repository is used in academic publications, please cite as:
+
+```bibtex
+@misc{andrade2025biasaware,
+  author = {Axl S. Andrade and Nelson Maculan and Ronaldo M. Gregório and Sérgio A. Monteiro and Vitor S. Ponciano},
+  title  = {Bias-Aware Community Detection via Semidefinite Programming and Structural Graph Analysis: Implementation and Experimental Validation},
+  year   = {2025},
+  url    = {https://github.com/axlandrade/bias-aware-community-detection},
+  note   = {Heuristic method for bias-aware community detection validated on the FACTOID dataset.}
+}
 ```
-
-### 3. (If TwiBot-22) Set Limit (Recommended)
-
-TwiBot-22 is massive. For an initial test, it is highly recommended to limit the number of nodes to load. In the `notebooks/Twi-Bot-20-22.ipynb` notebook, in the "Step 1" cell, change `max_nodes`:
-
-```python
-# In the notebook's "Step 1" cell
-# 50000 is recommended for a test; None for the full dataset (requires >= 64GB RAM)
-G, bot_labels = data_loader.load_and_build_graph(max_nodes=50000) 
-```
-
-### 4. Run the Notebook
-
-Open and run the `notebooks/Twi-Bot-20-22.ipynb` notebook cell by cell. The notebook will:
-1.  Load the configuration and the correct `Loader` (TwiBot20Loader or TwiBot22Loader).
-2.  Load the graph and labels.
-3.  Calculate bias scores (`BiasCalculator`), downloading the AI model on the first run.
-4.  Run the Heuristic (`EnhancedLouvainWithBias`) and the Standard Louvain (Baseline).
-5.  Generate comparative results tables (`ComprehensiveEvaluator`).
-6.  (Optional) Run the SDP solver (`BiasAwareSDP`) if the resulting graph is small enough (`< 1500` nodes).
-
-## License
-
-This project is licensed under the terms of the [MIT License](https://github.com/axlandrade/bias-aware-community-detection/blob/main/LICENSE).
-
-## Citation
-
-If you use this code or methodology in your research, please cite the original paper:
-
-[Insert formal paper citation here when published]
