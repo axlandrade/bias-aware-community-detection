@@ -9,16 +9,9 @@ import datetime
 import sys
 
 from src.heuristic import EnhancedLouvainWithBias
+from src.reddit_user_dataset import RedditUserDataset, EvaluatedUser
+from src.fake_news_detection import AnnotatedFakeNewsDetector
 
-# --- Importar classes dos arquivos do repositório FACTOID ---
-# (Certifique-se que esses .py estejam no mesmo diretório ou no PYTHONPATH)
-try:
-    from reddit_user_dataset import RedditUserDataset, EvaluatedUser
-    from fake_news_detection import AnnotatedFakeNewsDetector
-except ImportError:
-    print("Erro: Não foi possível encontrar 'reddit_user_dataset.py' ou 'fake_news_detection.py'.")
-    print("Certifique-se de que eles estão no mesmo diretório.")
-    sys.exit(1)
 
 # --- 0. Definição de Caminhos e Parâmetros ---
 # (!!! AJUSTE ESSES CAMINHOS !!!)
@@ -86,7 +79,7 @@ def gerar_inputs_de_vies(dataset, domains_file):
     print("\nIniciando Passo 2: Geração de C_GT e b(v)...")
     
     # 2.1 Carregar o detector com o arquivo de domínios anotados
-    detector = AnnotatedFakeNewsDetector(domain_file_path=domains_file, label='fake') [cite: 379, 382-383]
+    detector = AnnotatedFakeNewsDetector(domain_file_path=domains_file, label='fake')
     print(f"Domínios de viés carregados. Total: {len(detector.bias_map)}")
     
     ground_truth_map = {} # C_GT (para validação final)
@@ -95,16 +88,16 @@ def gerar_inputs_de_vies(dataset, domains_file):
     # 2.2 Iterar sobre cada usuário e seus posts
     for _, row in tqdm(dataset.data_frame.iterrows(), total=len(dataset.data_frame), desc="Mapeando Viés de Usuários"):
         user_id = row['user_id']
-        user_obj = EvaluatedUser(user_id, "REDDIT") [cite: 344-351]
+        user_obj = EvaluatedUser(user_id, "REDDIT")
         user_obj.own_posts = row['documents']
         
-        # Esta função retorna um mapa de posts e seus domínios de viés [cite: 396-410]
-        post_annotations = detector.candidate(user_obj, content_index=1) [cite: 396]
+        # Esta função retorna um mapa de posts e seus domínios de viés
+        post_annotations = detector.candidate(user_obj, content_index=1)
         
         user_bias_labels = [] # Coleta rótulos (ex: 'left', 'right')
         for post_id, annotations in post_annotations.items():
             for (domain, label, bias_list, factuality) in annotations:
-                user_bias_labels.extend(bias_list) # O 'bias_list' é o nosso ground-truth [cite: 385]
+                user_bias_labels.extend(bias_list) # O 'bias_list' é o nosso ground-truth
         
         # 2.3 Determinar viés dominante (mais comum)
         if user_bias_labels:
@@ -151,11 +144,11 @@ def executar_validacao(G, b_v_map, gt_map):
         alpha=0.5, 
         max_iterations=100, 
         verbose=True
-    ) [cite: 7-13]
+    )
     
-    # Executar o método .fit() [cite: 15-37]
+    # Executar o método .fit()
     enhanced_model.fit(G, b_v_map, num_communities=2)
-    partition_heuristica = enhanced_model.get_communities() [cite: 157-158]
+    partition_heuristica = enhanced_model.get_communities()
 
     # 4.4 Calcular Métricas de Validação
     print("\nCalculando métricas de validação...")
