@@ -218,22 +218,4 @@ __marimo__/
 # VS Code settings
 .vscode/
 
-# Data folder
-data/
-
-intermediate_tweet_scores.csv
-
-notebooks/igraph_real_labels.json
-
-notebooks/igraph_real_graph.pkl
-
-notebooks/igraph_real_labels.json
-
-notebooks/igraph_id_maps.json
-
-TwiBot-20_sample.json
-
-TwiBot-20/
-TwiBot-22/
-
 FACTOID/
