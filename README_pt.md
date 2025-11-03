@@ -163,7 +163,7 @@ Valores mais altos de ambas as métricas indicam maior similaridade entre as par
 Se este repositório for utilizado em publicações acadêmicas, favor citar como:
 
 ```bibtex
-@misc{andrade2025biasaware,
+@misc{monteiro,
   author = {Axl S. Andrade and Nelson Maculan and Ronaldo M. Gregório and Sérgio A. Monteiro and Vitor S. Ponciano},
   title  = {Detecção de Viés Social em Redes Sociais via Programação Semidefinida e Análise Estrutural de Grafos: Implementação e Validação Experimental},
   year   = {2025},

@@ -164,7 +164,7 @@ Higher ARI and NMI values indicate stronger agreement between partitions, thus g
 If this repository is used in academic publications, please cite as:
 
 ```bibtex
-@misc{andrade2025biasaware,
+@misc{monteiro,
   author = {Axl S. Andrade and Nelson Maculan and Ronaldo M. Gregório and Sérgio A. Monteiro and Vitor S. Ponciano},
   title  = {Bias-Aware Community Detection via Semidefinite Programming and Structural Graph Analysis: Implementation and Experimental Validation},
   year   = {2025},
