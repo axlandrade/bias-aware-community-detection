@@ -20,22 +20,49 @@ onde:
 - $B(C)$ quantifica a homogeneidade ideológica dentro das comunidades;
 - $\alpha \in [0,1]$ é o parâmetro de ponderação entre estrutura e viés.
 
-O método foi validado experimentalmente sobre o **FACTOID Dataset**, demonstrando desempenho superior ao Louvain clássico ($\alpha = 0$) na detecção de comunidades ideologicamente coerentes.
+O método foi validado experimentalmente sobre o **Indiana University Twitter Dataset** publicado no **Harvard Dataverse**, demonstrando desempenho superior ao Louvain clássico ($\alpha = 0$) na detecção de comunidades ideologicamente coerentes.
 
 ---
 
-## 2. Dataset: FACTOID
+## 2. Dataset: Indiana University Twitter Dataset
 
-O **FACTOID Dataset** ([CAISA Lab, University of Amsterdam](https://github.com/caisa-lab/FACTOID-dataset)) constitui o núcleo experimental do projeto.  
-Ele contém:
+A base experimental deste projeto é o **Conjunto de Dados do Twitter da Universidade de Indiana** publicado no **Harvard Dataverse**.
+Este conjunto de dados fornece uma representação em larga escala e empiricamente fundamentada da polarização social e ideológica no Twitter (X).
 
-- Um grafo de interações entre usuários do Reddit (submissões e respostas);  
-- Corpus textual com anotações factuais e ideológicas;  
-- Etiquetas de viés político baseadas em domínios verificados (left/right/center).
+> **Citação:**  
+> Dimitar Nikolov, Alessandro Flammini, and Filippo Menczer (2020).  
+> *Replication Data for: Right and left, partisanship predicts vulnerability to misinformation.*  
+> Harvard Dataverse, V2.  
+> DOI: [10.7910/DVN/6CZHH5](https://doi.org/10.7910/DVN/6CZHH5)
 
-O FACTOID foi selecionado por conter **ground-truth explícito de polarização política**, viabilizando a comparação quantitativa entre partições obtidas e partições reais.
+---
 
-> **Atribuição:** Este projeto utiliza dados derivados do repositório público FACTOID, mantido por CAISA Lab, University of Amsterdam.
+### 2.1 Descrição do Dataset
+
+O conjunto de dados consiste em registros anonimizados de usuários do Twitter, suas conexões de rede e comportamento de compartilhamento de conteúdo.
+Os seguintes arquivos principais foram utilizados neste projeto:
+
+| File                          | Description                                                                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`anonymized-friends.json`** | Codifica as relações de amizade direcionadas ou não direcionadas entre os usuários, formando o gráfico social \( G = (V, E) \).                                                              |
+| **`anonymized-shares.json`**  | Contém informações em nível de domínio sobre URLs compartilhadas ou retuitadas por cada usuário, permitindo a inferência de viés com base no conteúdo.                                       |
+| **`measures.tab`**            | Fornece métricas em nível de vértice, incluindo *Partidarismo* e *Desinformação*. A pontuação de *Partidarismo* \((-1,1)\) foi usada exclusivamente para definir o vetor de viés \( b(v) \). |
+
+---
+
+### 2.2 Construção do grafo e modelagem do viés
+
+Após o pré-processamento:
+
+| Descrição                                  | Símbolo     | Valor |
+| ------------------------------------------ | ----------- | ----- |
+| Número de nós                              | \(          | V     | \) | 15.056    |
+| Número de arestas                          | \(          | E     | \) | 2.544.068 |
+| Grau médio                                 | \(\bar{k}\) | 337,8 |
+| Usuários com rótulo de viés                | \(          | b     | \) | 15.056    |
+| Usuários com rótulo de verdade fundamental | \(          | gt    | \) | 12.235    |
+
+O grafo resultante é significativamente mais denso e ideologicamente mais rico do que o FACTOID, fornecendo um substrato mais realista para experimentos de detecção de comunidades.
 
 ---
 
@@ -45,40 +72,41 @@ O FACTOID foi selecionado por conter **ground-truth explícito de polarização 
 bias-aware-community-detection/
 │
 ├── src/
-│   ├── heuristic.py              # Implementação da heurística Bias-Aware Louvain
-│   ├── reddit_user_dataset.py    # Manipulação e cache do FACTOID
-│   ├── fake_news_detection.py    # Leitura de domínios com viés político
-│   ├── bias_calculator.py        # Cálculo de bias_score b(v)
-│   ├── evaluation.py             # Avaliação com ARI e NMI
-│   ├── sdp_model.py              # Formulação semidefinida opcional
-│   ├── data_utils.py             # Funções utilitárias
-│   ├── config.py                 # Configurações globais
+│   ├── heuristic.py              # Bias-Aware Louvain heuristic implementation
+│   ├── twitter_dataset.py        # Parsing and preprocessing of the Indiana Twitter dataset
+│   ├── bias_calculator.py        # Computation of bias scores from measures.tab
+│   ├── evaluation.py             # Evaluation of partitions (ARI, NMI, modularity)
+│   ├── sdp_model.py              # Optional semidefinite relaxation (for theoretical comparison)
+│   ├── data_utils.py             # Helper utilities for graph construction
+│   ├── config.py                 # Global configuration and paths
 │   └── __init__.py
 │
-├── FACTOID/
-│   ├── reddit_corpus_unbalanced_filtered.gzip
-│   ├── social_graph_data/
-│   └── fn_domains_verified
+├── TWITTER/
+│   ├── anonymized-friends.json
+│   ├── anonymized-shares.json
+│   └── measures.tab
 │
-├── processed_factoid/
-│   ├── social_graph.gml
-│   ├── factoid_bias_groundtruth.csv
-│   └── factoid_alpha_sweep.csv
-│
-├── validar_heuristica.ipynb      # Notebook principal de validação
+├── Heuristic_Validation.ipynb    # Main validation notebook
+├── LICENSE
+├── README_pt.md                  # Portuguese version of this document
 └── README.md
 ```
+
+### 3.1 Licenciamento e Atribuição
+
+O dataset do Twitter da Indiana University é de acesso público sob os termos de uso do Harvard Dataverse.  
+Todas as etapas de processamento e análise respeitam integralmente as diretrizes de anonimização e uso ético estabelecidas pelos autores originais.
 
 ---
 
 ## 4. Execução do Pipeline
 
-O experimento pode ser reproduzido diretamente pelo notebook `validar_heuristica.ipynb`.
+O experimento pode ser reproduzido diretamente pelo notebook `Heuristic_Validation.ipynb`.
 
 **Etapas:**
 
 1. Instalar dependências.  
-2. Colocar os arquivos FACTOID nas pastas indicadas.  
+2. Colocar os arquivos do Dataset nas pastas indicadas.  
 3. Executar o notebook completo.
 
 O pipeline realiza:
@@ -98,7 +126,7 @@ O pipeline realiza:
 
 ```text
 ┌──────────────────────────────┐
-│        FACTOID Dataset       │
+│        Twitter Dataset       │
 └──────────────┬───────────────┘
                │
                ▼
@@ -128,10 +156,10 @@ O pipeline realiza:
 
 ## 6. Resultados Experimentais
 
-| Método                        | α    | ARI   | NMI   |
-| ----------------------------- | ---- | ----- | ----- |
-| Louvain (baseline)            | 0.0  | 0.054 | 0.098 |
-| Bias-Aware Louvain (proposto) | 0.5  | 0.452 | 0.256 |
+| Método                        | α   | ARI   | NMI   |
+| ----------------------------- | --- | ----- | ----- |
+| Louvain (baseline)            | 0.0 | 0.898 | 0.827 |
+| Bias-Aware Louvain (proposto) | 0.8 | 0.900 | 0.830 |
 
 A heurística proposta alcançou melhor alinhamento com o *ground-truth* político, demonstrando que a incorporação do termo de viés $B(C)$ aprimora a separação ideológica sem comprometer a coesão estrutural.
 
@@ -149,16 +177,7 @@ Valores mais altos de ambas as métricas indicam maior similaridade entre as par
 
 ---
 
-## 7. Referências
-
-1. Glenski, M., et al. (2023). *FACTOID: Fact-Checking and Ideology Dataset for Reddit.* CAISA Lab, University of Amsterdam.  
-   Disponível em: [https://github.com/caisa-lab/FACTOID-dataset](https://github.com/caisa-lab/FACTOID-dataset)
-
-2. Andrade, A. S., Maculan, N., Gregório, R. M., Monteiro, S. A., & Ponciano, V. S. (2025). *Bias-Aware Community Detection via Modularity–Bias Optimization.* Manuscrito em preparação.
-
----
-
-## 8. Citação
+## 7. Citação
 
 Se este repositório for utilizado em publicações acadêmicas, favor citar como:
 

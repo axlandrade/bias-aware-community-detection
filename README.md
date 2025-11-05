@@ -21,22 +21,49 @@ where:
 - $B(C)$ quantifies the ideological homogeneity within communities;
 - $\alpha \in [0,1]$ is the weighting parameter between structure and bias.
 
-The method was experimentally validated on the **FACTOID Dataset**, demonstrating superior performance to the classical Louvain algorithm ($\alpha = 0$) in detecting ideologically coherent communities.
+The method was experimentally validated on the **Indiana University Twitter Dataset** published on **Harvard Dataverse**, demonstrating superior performance to the classical Louvain algorithm ($\alpha = 0$) in detecting ideologically coherent communities.
 
 ---
 
-## 2. Dataset: FACTOID
+## 2. Dataset: Indiana University Twitter Dataset
 
-The **FACTOID Dataset** ([CAISA Lab, University of Amsterdam](https://github.com/caisa-lab/FACTOID-dataset)) constitutes the experimental core of this project.  
-It includes:
+The experimental foundation of this project is the dataset to the **Indiana University Twitter Dataset** published on **Harvard Dataverse**.  
+This dataset provides a large-scale, empirically grounded representation of social and ideological polarization on Twitter (X).
 
-- A graph of Reddit user interactions (submissions and replies);  
-- Text corpus with factual and ideological annotations;  
-- Political bias labels based on verified media domains (left/right/center).
+> **Citation:**  
+> Dimitar Nikolov, Alessandro Flammini, and Filippo Menczer (2020).  
+> *Replication Data for: Right and left, partisanship predicts vulnerability to misinformation.*  
+> Harvard Dataverse, V2.  
+> DOI: [10.7910/DVN/6CZHH5](https://doi.org/10.7910/DVN/6CZHH5)
 
-FACTOID was chosen because it contains an **explicit ground-truth of political polarization**, enabling quantitative comparison between predicted and reference partitions.
+---
 
-> **Attribution:** This project uses data derived from the public FACTOID repository maintained by CAISA Lab, University of Amsterdam.
+### 2.1 Dataset Description
+
+The dataset consists of anonymized records of Twitter users, their network connections, and content-sharing behavior.  
+The following core files were employed in this project:
+
+| File                          | Description                                                                                                                                                                |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`anonymized-friends.json`** | Encodes the directed or undirected friendship relations between users, forming the social graph \( G = (V, E) \).                                                          |
+| **`anonymized-shares.json`**  | Contains domain-level information on URLs shared or retweeted by each user, allowing for content-based bias inference.                                                     |
+| **`measures.tab`**            | Provides node-level metrics, including *Partisanship* and *Misinformation*. The *Partisanship* score \((-1,1)\) was used exclusively to define the bias vector \( b(v) \). |
+
+---
+
+### 2.2 Graph Construction and Bias Modeling
+
+After preprocessing (with limited nodes):
+
+| Description                   | Symbol      | Value |
+| ----------------------------- | ----------- | ----- |
+| Number of nodes               | \(          | V     | \) | 15,056    |
+| Number of edges               | \(          | E     | \) | 2,544,068 |
+| Average degree                | \(\bar{k}\) | 337.8 |
+| Users with bias label         | \(          | b     | \) | 15,056    |
+| Users with ground-truth label | \(          | gt    | \) | 12,235    |
+
+The resulting graph is significantly denser and ideologically richer than FACTOID, providing a more realistic substrate for community detection experiments.
 
 ---
 
@@ -47,39 +74,40 @@ bias-aware-community-detection/
 │
 ├── src/
 │   ├── heuristic.py              # Bias-Aware Louvain heuristic implementation
-│   ├── reddit_user_dataset.py    # FACTOID handling and caching
-│   ├── fake_news_detection.py    # Reading of politically biased domains
-│   ├── bias_calculator.py        # Computation of bias_score b(v)
-│   ├── evaluation.py             # Evaluation with ARI and NMI
-│   ├── sdp_model.py              # Optional semidefinite formulation
-│   ├── data_utils.py             # Utility functions
-│   ├── config.py                 # Global configurations
+│   ├── twitter_dataset.py        # Parsing and preprocessing of the Indiana Twitter dataset
+│   ├── bias_calculator.py        # Computation of bias scores from measures.tab
+│   ├── evaluation.py             # Evaluation of partitions (ARI, NMI, modularity)
+│   ├── sdp_model.py              # Optional semidefinite relaxation (for theoretical comparison)
+│   ├── data_utils.py             # Helper utilities for graph construction
+│   ├── config.py                 # Global configuration and paths
 │   └── __init__.py
 │
-├── FACTOID/
-│   ├── reddit_corpus_unbalanced_filtered.gzip
-│   ├── social_graph_data/
-│   └── fn_domains_verified
+├── TWITTER/
+│   ├── anonymized-friends.json
+│   ├── anonymized-shares.json
+│   └── measures.tab
 │
-├── processed_factoid/
-│   ├── social_graph.gml
-│   ├── factoid_bias_groundtruth.csv
-│   └── factoid_alpha_sweep.csv
-│
-├── validar_heuristica.ipynb      # Main validation notebook
+├── Heuristic_Validation.ipynb    # Main validation notebook
+├── LICENSE
+├── README_pt.md                  # Portuguese version of this document
 └── README.md
 ```
+
+### 3.1 Licensing and Attribution
+
+The Indiana Twitter dataset is publicly available under the Harvard Dataverse terms of use.  
+All data handling procedures in this project strictly adhere to the anonymization and ethical usage policies defined by the dataset authors.
 
 ---
 
 ## 4. Pipeline Execution
 
-The experiment can be fully reproduced using the notebook `validar_heuristica.ipynb`.
+The experiment can be fully reproduced using the notebook `Heuristic_Validation.ipynb`.
 
 **Steps:**
 
 1. Install dependencies.  
-2. Place the FACTOID files in the specified directories.  
+2. Place the Twitter Dataset files in the specified directories.  
 3. Execute the notebook end-to-end.
 
 The pipeline performs:
@@ -88,7 +116,7 @@ The pipeline performs:
 - Computation of $b(v)$ (bias_score) and ground-truth labels;  
 - Execution of the following methods:  
   - Standard Louvain ($\alpha = 0.0$)  
-  - Bias-Aware Heuristic ($\alpha = 0.5$)  
+  - Bias-Aware Heuristic ($\alpha = [0,1]$)  
 - Comparative evaluation via ARI and NMI metrics.
 
 > **Note:** Full pipeline execution is recommended on **Google Colab**, due to native GPU support (T4/V100) and automatic Python environment setup. This ensures reproducibility, accelerates computation, and simplifies dependency management.
@@ -99,7 +127,7 @@ The pipeline performs:
 
 ```text
 ┌──────────────────────────────┐
-│        FACTOID Dataset       │
+│        Twitter Dataset       │
 └──────────────┬───────────────┘
                │
                ▼
@@ -129,10 +157,10 @@ The pipeline performs:
 
 ## 6. Experimental Results
 
-| Method                        | α    | ARI   | NMI   |
-| ----------------------------- | ---- | ----- | ----- |
-| Louvain (baseline)            | 0.0  | 0.054 | 0.098 |
-| Bias-Aware Louvain (proposed) | 0.5  | 0.452 | 0.256 |
+| Method                        | α   | ARI   | NMI   |
+| ----------------------------- | --- | ----- | ----- |
+| Louvain (baseline)            | 0.0 | 0.898 | 0.827 |
+| Bias-Aware Louvain (proposed) | 0.8 | 0.900 | 0.830 |
 
 The proposed heuristic achieved better alignment with the political ground-truth, showing that incorporating the bias term $B(C)$ improves ideological separation without compromising structural cohesion.
 
@@ -150,16 +178,7 @@ Higher ARI and NMI values indicate stronger agreement between partitions, thus g
 
 ---
 
-## 7. References
-
-1. Glenski, M., et al. (2023). *FACTOID: Fact-Checking and Ideology Dataset for Reddit.* CAISA Lab, University of Amsterdam.  
-   Available at: [https://github.com/caisa-lab/FACTOID-dataset](https://github.com/caisa-lab/FACTOID-dataset)
-
-2. Andrade, A. S., Maculan, N., Gregório, R. M., Monteiro, S. A., & Ponciano, V. S. (2025). *Bias-Aware Community Detection via Modularity–Bias Optimization.* Manuscript in preparation.
-
----
-
-## 8. Citation
+## 7. Citation
 
 If this repository is used in academic publications, please cite as:
 
