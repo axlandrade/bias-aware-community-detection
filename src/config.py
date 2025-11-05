@@ -1,64 +1,108 @@
-# src/config.py
+"""
+config.py
+----------------------
+Centralized configuration module for Bias-Aware Community Detection.
+
+Defines all key experimental parameters, file paths, and logging setup
+used across the /src package. The configuration is dataset-agnostic,
+allowing direct use in both the FACTOID and Twitter pipelines.
+
+Author: Axl S. Andrade et al.
+Affiliation: Universidade Federal Rural do Rio de Janeiro (UFRRJ)
+"""
+
 import os
-import torch
+import logging
 
-class Config:
-    # --- SELETOR DE DATASET ---
-    # Mude esta linha para "TWIBOT_20" ou "TWIBOT_22"
-    DATASET_MODE = "TWIBOT_22" 
-    # --------------------------
 
-    # --- Caminhos Base ---
-    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# --------------------------------------------------------------------------- #
+#                           Logging Configuration
+# --------------------------------------------------------------------------- #
+def setup_logging():
+    """
+    Configure global logging style for the experimental environment.
 
-    # --- Configurações do Modelo de Viés (COMPARTILHADO) ---
-    # Modelo que funcionou (matous-volf/political-leaning-politics)
-    BIAS_MODEL_NAME = "matous-volf/political-leaning-politics"
-    BIAS_TOKENIZER_NAME = "launch/POLITICS"
-    
-    BATCH_SIZE = 64
-    MAX_LENGTH = 256
-    
-    # --- Hardware e Paralelismo (COMPARTILHADO) ---
-    DEVICE = 0 if torch.cuda.is_available() else -1
-    NUM_WORKERS = os.cpu_count()
-    
-    # --- Algoritmo (COMPARTILHADO) ---
-    ALPHA = 0.5
-    RANDOM_STATE = 42
+    Notes
+    -----
+    - Logs are printed to console with timestamps and message level.
+    - Intended for reproducible and auditable academic experiments.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(message)s",
+        datefmt="%H:%M:%S"
+    )
+    logging.info("✅ Logging initialized.")
 
-    # --- CAMINHOS E CACHE (SELECIONADO AUTOMATICAMENTE) ---
-    if DATASET_MODE == "TWIBOT_20":
-        # --- Configurações TwiBot-20 (JSON Único) ---
-        print("[Config] Modo TwiBot-20 (JSON) ativado.")
-        DATA_DIR = os.path.join(PROJECT_ROOT, "TwiBot-20")
-        # Apontar para o 'test.json' que funcionou
-        DATASET_FILE_PATH = os.path.join(DATA_DIR, "dev.json") 
-        TWIBOT20_FILE = os.path.join(DATA_DIR, "dev.json")
 
-        PROCESSED_DIR = os.path.join(PROJECT_ROOT, "processed_data_tw20_json")
-        GRAPH_SAVE_FILE = os.path.join(PROCESSED_DIR, "tw20_graph.pkl")
-        LABELS_SAVE_FILE = os.path.join(PROCESSED_DIR, "tw20_labels.json")
-        BIAS_SCORES_FILE = os.path.join(PROCESSED_DIR, "tw20_bias_scores.json")
+setup_logging()
 
-    elif DATASET_MODE == "TWIBOT_22":
-        # --- Configurações TwiBot-22 (CSV + Múltiplos JSONs) ---
-        print("[Config] Modo TwiBot-22 (CSV/JSONs) ativado.")
-        DATA_DIR = os.path.join(PROJECT_ROOT, "TwiBot-22") # Assumindo pasta raiz 'TwiBot-22'
-        
-        # Caminhos específicos do TwiBot-22
-        GRAPH_DATA_PATH = os.path.join(DATA_DIR, "data") # Para label.csv, edge.csv
-        TWEET_DATA_PATH = os.path.join(DATA_DIR, "tweet") # Para tweet_0.json etc.
-        
-        PROCESSED_DIR = os.path.join(PROJECT_ROOT, "processed_data_tw22") # Novo cache
-        GRAPH_SAVE_FILE = os.path.join(PROCESSED_DIR, "tw22_graph.pkl")
-        LABELS_SAVE_FILE = os.path.join(PROCESSED_DIR, "tw22_labels.json")
-        BIAS_SCORES_FILE = os.path.join(PROCESSED_DIR, "tw22_bias_scores.json")
-    
-    else:
-        raise ValueError(f"DATASET_MODE desconhecido: '{DATASET_MODE}' em config.py")
 
-    @classmethod
-    def create_dirs(cls):
-        """Cria diretório de cache."""
-        os.makedirs(cls.PROCESSED_DIR, exist_ok=True)
+# --------------------------------------------------------------------------- #
+#                         Experiment-Level Constants
+# --------------------------------------------------------------------------- #
+ALPHA_FIXED = 0.5
+"""
+float: Default weighting parameter α for the Bias-Aware Louvain method.
+α ∈ [0,1] controls the trade-off between structural modularity Q(C)
+and ideological coherence B(C).
+"""
+
+ALPHA_GRID = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+"""
+list[float]: Discrete grid of α values used for parameter sweep experiments.
+Each run evaluates performance (ARI, NMI) at a different α level.
+"""
+
+LIMIT_USERS = 15000
+"""
+int: Maximum number of users to load for large-scale datasets (e.g., Twitter).
+This parameter allows sampling for performance benchmarking.
+"""
+
+# --------------------------------------------------------------------------- #
+#                           Path Configuration
+# --------------------------------------------------------------------------- #
+BASE_PATH = os.getcwd()
+"""
+str: Base working directory for experiments. Adjust manually if needed.
+"""
+
+# FACTOID dataset paths
+FACTOID_PATHS = {
+    "GRAPH": os.path.join(BASE_PATH, "FACTOID", "social_graph_data", "social_graph.gml"),
+    "BIAS": os.path.join(BASE_PATH, "FACTOID", "factoid_bias_groundtruth.csv"),
+    "RESULTS": os.path.join(BASE_PATH, "FACTOID", "results"),
+}
+
+# Twitter dataset paths
+TWITTER_PATHS = {
+    "FRIENDS": os.path.join(BASE_PATH, "Twitter", "anonymized-friends.json"),
+    "SHARES": os.path.join(BASE_PATH, "Twitter", "anonymized-shares.json"),
+    "MEASURES": os.path.join(BASE_PATH, "Twitter", "measures.tab"),
+    "RESULTS": os.path.join(BASE_PATH, "Twitter", "results"),
+}
+
+
+# --------------------------------------------------------------------------- #
+#                           Execution Metadata
+# --------------------------------------------------------------------------- #
+EXPERIMENT_METADATA = {
+    "authors": [
+        "Axl S. Andrade",
+        "Nelson Maculan",
+        "Ronaldo M. Gregório",
+        "Sérgio A. Monteiro",
+        "Vitor S. Ponciano",
+    ],
+    "institution": "Universidade Federal Rural do Rio de Janeiro (UFRRJ)",
+    "project": "Bias-Aware Community Detection",
+    "version": "1.0.0",
+}
+"""
+dict: Metadata used for experiment documentation and automatic logging.
+"""
+
+logging.info("⚙️ Configuration loaded successfully.")
+logging.info(f"📦 Current base path: {BASE_PATH}")
+logging.info(f"α fixed = {ALPHA_FIXED}, user limit = {LIMIT_USERS:,}")

@@ -1,0 +1,8 @@
+numpy
+pandas
+torch
+matplotlib
+scikit-learn
+tqdm
+python-louvain
+networkx

@@ -1,99 +1,167 @@
-import networkx as nx
-import numpy as np
-from sklearn.metrics import silhouette_score
-import pandas as pd
+"""
+evaluation.py
+----------------------
+Evaluation metrics and comparative analysis for the Bias-Aware Community Detection
+framework.
 
+This module implements the evaluation layer used to quantitatively assess
+community detection results under both structural and ideological criteria.
+It provides measures such as Adjusted Rand Index (ARI), Normalized Mutual Information (NMI),
+and Modularity, allowing a rigorous comparison between the traditional Louvain method
+and its bias-aware extension.
+
+Author: Axl S. Andrade et al.
+Affiliation: Universidade Federal Rural do Rio de Janeiro (UFRRJ)
+"""
+
+import logging
+import numpy as np
+import networkx as nx
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+from collections import defaultdict
+
+
+# --------------------------------------------------------------------------- #
+#                          Community Evaluation Class
+# --------------------------------------------------------------------------- #
 class ComprehensiveEvaluator:
+    """
+    Evaluation framework for comparing community detection outcomes.
+
+    This class defines modular functions for evaluating both the structural
+    coherence (via modularity) and ideological alignment (via ARI and NMI)
+    of detected communities.
+    """
+
+    # ------------------------------------------------------------------ #
     @staticmethod
-    def evaluate_communities(G, partition, bias_scores, bot_labels=None):
-        """Avalia qualidade das comunidades detectadas"""
-        metrics = {}
-        
-        # Métricas estruturais
-        metrics['modularity'] = nx.algorithms.community.modularity(G, ComprehensiveEvaluator._get_communities_set(partition))
-        metrics['num_communities'] = len(set(partition.values()))
-        
-        # Métricas de viés
-        bias_metrics = ComprehensiveEvaluator._calculate_bias_metrics(partition, bias_scores)
-        metrics.update(bias_metrics)
-        
-        # Métricas de bots (se disponível)
-        if bot_labels:
-            bot_metrics = ComprehensiveEvaluator._calculate_bot_metrics(partition, bot_labels)
-            metrics.update(bot_metrics)
-        
-        return metrics
-    
+    def evaluate_communities(G, partition: dict, bias_scores: dict, ground_truth: dict):
+        """
+        Compute modularity, ARI, and NMI for a given community assignment.
+
+        Parameters
+        ----------
+        G : nx.Graph
+            Social graph used for community detection.
+        partition : dict
+            Mapping {node: community_id} produced by the detection algorithm.
+        bias_scores : dict
+            Mapping {node: bias_score} representing ideological leanings.
+        ground_truth : dict
+            Mapping {node: label} of real ideological classes (0 = left, 1 = right).
+
+        Returns
+        -------
+        dict
+            Evaluation metrics including:
+                - modularity
+                - ARI
+                - NMI
+                - avg_bias_intra (intra-community bias homogeneity)
+
+        Notes
+        -----
+        - Modularity (Q) quantifies the structural quality of communities.
+        - ARI (Adjusted Rand Index) and NMI (Normalized Mutual Information)
+          measure similarity between detected and true ideological partitions.
+        - avg_bias_intra quantifies ideological cohesion:
+              \( \bar{B} = \frac{1}{|C|} \sum_{c \in C} \sigma_c(b) \),
+          where \( \sigma_c(b) \) is the standard deviation of bias within community c.
+        """
+        logging.info("🧩 Evaluating community partition...")
+
+        # --- Defensive Checks --- #
+        if not partition or not isinstance(partition, dict):
+            raise ValueError("Partition must be a non-empty dictionary {node: community_id}.")
+
+        if len(set(partition.values())) == 1:
+            logging.warning("⚠️ Only one community detected; metrics may be degenerate.")
+
+        # --- Modularity --- #
+        try:
+            comms = ComprehensiveEvaluator._dict_to_communities(partition)
+            modularity = nx.algorithms.community.modularity(G, comms)
+        except Exception as e:
+            logging.warning(f"⚠️ Modularity computation failed: {e}")
+            modularity = np.nan
+
+        # --- Bias Homogeneity --- #
+        avg_bias_intra = ComprehensiveEvaluator._compute_bias_homogeneity(partition, bias_scores)
+
+        # --- ARI / NMI --- #
+        common_nodes = list(set(partition.keys()) & set(ground_truth.keys()))
+        if len(common_nodes) < 2:
+            logging.warning("⚠️ Insufficient overlap for ARI/NMI computation.")
+            ari, nmi = np.nan, np.nan
+        else:
+            y_true = [ground_truth[u] for u in common_nodes]
+            y_pred = [partition[u] for u in common_nodes]
+            ari = adjusted_rand_score(y_true, y_pred)
+            nmi = normalized_mutual_info_score(y_true, y_pred)
+
+        results = {
+            "modularity": modularity,
+            "ARI": ari,
+            "NMI": nmi,
+            "avg_bias_intra": avg_bias_intra,
+            "num_communities": len(set(partition.values())),
+        }
+
+        logging.info(
+            f"✅ Evaluation completed — Q={modularity:.3f}, ARI={ari:.3f}, NMI={nmi:.3f}, intra-bias={avg_bias_intra:.3f}"
+        )
+        return results
+
+    # ------------------------------------------------------------------ #
     @staticmethod
-    def _get_communities_set(partition):
-        """Converte partição para formato do NetworkX"""
-        communities = {}
+    def _dict_to_communities(partition: dict):
+        """
+        Convert a node-community mapping to a list of sets for modularity computation.
+
+        Parameters
+        ----------
+        partition : dict
+            Node-to-community mapping.
+
+        Returns
+        -------
+        list[set]
+            List of node sets, one per community.
+        """
+        comms = defaultdict(set)
         for node, comm in partition.items():
-            if comm not in communities:
-                communities[comm] = set()
-            communities[comm].add(node)
-        return list(communities.values())
-    
+            comms[comm].add(node)
+        return list(comms.values())
+
+    # ------------------------------------------------------------------ #
     @staticmethod
-    def _calculate_bias_metrics(partition, bias_scores):
-        """Calcula métricas de qualidade do viés"""
-        metrics = {}
-        
-        # Agrupar viés por comunidade
-        comm_biases = {}
+    def _compute_bias_homogeneity(partition: dict, bias_scores: dict) -> float:
+        """
+        Compute the intra-community ideological bias homogeneity metric.
+
+        Parameters
+        ----------
+        partition : dict
+            Mapping {node: community_id}.
+        bias_scores : dict
+            Mapping {node: bias_score ∈ [-1, +1]}.
+
+        Returns
+        -------
+        float
+            Mean standard deviation of bias values across all communities.
+
+        Interpretation
+        --------------
+        Lower values indicate greater ideological homogeneity within communities,
+        reflecting stronger polarization capture.
+        """
+        comm_biases = defaultdict(list)
         for node, comm in partition.items():
-            if comm not in comm_biases:
-                comm_biases[comm] = []
-            comm_biases[comm].append(bias_scores.get(node, 0))
-        
-        # Pureza intra-comunidade (baixa variância é bom)
-        intra_variances = [np.var(biases) for biases in comm_biases.values() if len(biases) > 1]
-        metrics['bias_purity'] = 1 - (np.mean(intra_variances) if intra_variances else 0)
-        
-        # Separação inter-comunidade (alta variância entre médias é bom)
-        comm_means = [np.mean(biases) for biases in comm_biases.values() if biases]
-        metrics['bias_separation'] = np.var(comm_means) if len(comm_means) > 1 else 0
-        
-        return metrics
-    
-    @staticmethod
-    def _calculate_bot_metrics(partition, bot_labels):
-        """Calcula métricas relacionadas a bots"""
-        metrics = {}
-        
-        comm_bots = {}
-        for node, comm in partition.items():
-            if comm not in comm_bots:
-                comm_bots[comm] = []
-            if node in bot_labels:
-                comm_bots[comm].append(bot_labels[node])
-        
-        # Concentração máxima de bots
-        bot_concentrations = []
-        for comm, bots in comm_bots.items():
-            if bots:
-                bot_ratio = sum(bots) / len(bots)
-                bot_concentrations.append(bot_ratio)
-        
-        metrics['bot_concentration_max'] = max(bot_concentrations) if bot_concentrations else 0
-        metrics['bot_concentration_avg'] = np.mean(bot_concentrations) if bot_concentrations else 0
-        
-        return metrics
-    
-    @staticmethod
-    def print_comparison(metrics1, metrics2, name1="Método 1", name2="Método 2"):
-        """Imprime comparação entre dois métodos"""
-        print(f"\n📈 COMPARAÇÃO: {name1} vs {name2}")
-        print("-" * 50)
-        
-        for metric in ['modularity', 'bias_purity', 'bias_separation', 'bot_concentration_max']:
-            if metric in metrics1 and metric in metrics2:
-                val1 = metrics1[metric]
-                val2 = metrics2[metric]
-                
-                if val2 != 0:
-                    improvement = ((val1 / val2) - 1) * 100
-                else:
-                    improvement = 0
-                
-                print(f"{metric:>20}: {val1:7.4f} vs {val2:7.4f} ({improvement:+.1f}%)")
+            if node in bias_scores:
+                comm_biases[comm].append(bias_scores[node])
+
+        stdevs = [
+            np.std(vals) for vals in comm_biases.values() if len(vals) > 1
+        ]
+        return np.mean(stdevs) if stdevs else np.nan
