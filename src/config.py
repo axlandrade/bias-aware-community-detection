@@ -54,7 +54,7 @@ list[float]: Discrete grid of α values used for parameter sweep experiments.
 Each run evaluates performance (ARI, NMI) at a different α level.
 """
 
-LIMIT_USERS = 100000
+LIMIT_USERS = 200000
 """
 int: Maximum number of users to load for large-scale datasets (e.g., Twitter).
 This parameter allows sampling for performance benchmarking.
