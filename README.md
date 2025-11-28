@@ -57,11 +57,11 @@ After preprocessing (with limited nodes):
 
 | Description                   | Symbol | Value     |
 | ----------------------------- | ------ | --------- |
-| Number of nodes               | \(V\)  | 15,056    |
-| Number of edges               | \(E\)  | 2,544,068 |
-| Average degree                | \(k\)  | 337.8     |
-| Users with bias label         | \(b\)  | 15,056    |
-| Users with ground-truth label | \(gt\) | 12,235    |
+| Number of nodes               | $V$    | 15,056    |
+| Number of edges               | $E$    | 2,544,068 |
+| Average degree                | $k$    | 337.8     |
+| Users with bias label         | $b$    | 15,056    |
+| Users with ground-truth label | $gt$   | 12,235    |
 
 The resulting graph is significantly denser and ideologically richer than FACTOID, providing a more realistic substrate for community detection experiments.
 
