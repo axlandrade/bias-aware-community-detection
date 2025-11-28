@@ -56,11 +56,11 @@ Após o pré-processamento:
 
 | Descrição                                  | Símbolo | Valor     |
 | ------------------------------------------ | ------- | --------- |
-| Número de nós                              | \(V\)   | 15.056    |
-| Número de arestas                          | \(E\)   | 2.544.068 |
-| Grau médio                                 | \(k\)   | 337,8     |
-| Usuários com rótulo de viés                | \(b\)   | 15.056    |
-| Usuários com rótulo de verdade fundamental | \(gt\)  | 12.235    |
+| Número de nós                              | $V$     | 15.056    |
+| Número de arestas                          | $E$     | 2.544.068 |
+| Grau médio                                 | $k$     | 337,8     |
+| Usuários com rótulo de viés                | $b$     | 15.056    |
+| Usuários com rótulo de verdade fundamental | $gt$    | 12.235    |
 
 O grafo resultante é significativamente mais denso e ideologicamente mais rico do que o FACTOID, fornecendo um substrato mais realista para experimentos de detecção de comunidades.
 
